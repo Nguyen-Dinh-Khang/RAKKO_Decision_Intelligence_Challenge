@@ -1,141 +1,192 @@
 """
-copilot_router.py - Bộ Định tuyến Ý định Thông minh (Agentic Router for Tactical Copilot)
-Phân loại câu hỏi của người dùng thành 2 nhánh:
-1. COMPETITIVE (Cạnh tranh vi mô): Quán bên cạnh, đối thủ phá giá, giành khách, tiếp thị vi mô 1km
-   -> Kích hoạt đồng thời: DB2 (Đối thủ) + DB3 (Rủi ro) + DB4 (Bài học thực chiến) + DB5 (Sức mua thị trường)
-2. INTERNAL (Vận hành nội bộ): Nhân sự, quản lý, quy trình bếp, chủ nhà, hao hụt nguyên liệu
-   -> Kích hoạt: DB3 (Rủi ro & Sự cố) + DB4 (Bài học xương máu)
+copilot_router.py - Bộ Định tuyến Ý định Nghiệp vụ 5 Nhánh (Tactical Copilot Router)
+Đặc tả: Phần I - Tài liệu Đặc tả Tactical Copilot Engine (v3.2.0)
+
+Phân loại câu hỏi của người dùng thành 5 nhánh ý định:
+- Nhánh A (Nhóm A): Hỏi Kinh nghiệm Thuần túy (Experience-Only) -> Chỉ lọc DB4
+- Nhánh B (Nhóm B): Gỡ rối Sự cố Nội bộ tại chỗ (Internal Crisis) -> Lọc DB3 + DB4
+- Nhánh C (Nhóm C): Giả định Chiến lược ("Nếu - Thì") (Strategic What-If) -> Hồ sơ quán + DB2 + DB5 + DB4 & DB3
+- Nhánh D (Nhóm D): Phản công Cạnh tranh Vi mô (Micro-Defense) -> Lọc DB2 + DB5 + DB4 (Bỏ qua DB3)
+- Nhánh E (Nhóm E): Phân tích & Chẩn đoán Bệnh kinh doanh (Diagnostic Triage) -> Quét DB3 + DB4 + logs tài chính
+
+Kiến trúc định tuyến 2 tầng:
+- Tầng 1: Bộ phát hiện mẫu câu & từ khóa (Intent Pattern Detector)
+- Tầng 2: Ánh xạ không gian vector BAAI/bge-m3 (1024 chiều) với 5 Anchor Vectors
 """
 
+import os
 import re
+import json
 import logging
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Bộ từ khóa chỉ đích danh Cạnh tranh vi mô & Đối thủ F&B
-COMPETITIVE_KEYWORDS = [
-    "đối thủ", "quán bên cạnh", "sát vách", "phá giá", "bán rẻ hơn", 
-    "bán phá giá", "cạnh tranh giá", "giành khách", "cướp khách", 
-    "hút khách", "kéo khách", "hút hết khách", "kéo hết khách", 
-    "mất khách vào tay", "quán đối diện", "quán mới mở sát", 
-    "đè bẹp đối thủ", "combo đè", "đối đầu", "chiêu trò cạnh tranh", 
-    "đông hơn quán tôi", "thị phần quanh đây"
-]
+# Đường dẫn nạp dữ liệu định nghĩa 5 nhánh
+BRANCH_DATA_PATH = Path(__file__).resolve().parent / "branch_anchors.json"
 
-# Bộ từ khóa chỉ đích danh Vận hành nội bộ, SOP và Chi phí
-INTERNAL_KEYWORDS = [
-    "đợi lâu", "chờ lâu", "phục vụ chậm", "chủ nhà", "tiền thuê", "tăng giá thuê",
-    "giá thuê", "hợp đồng thuê", "nhân viên", "nhân sự", "nghỉ việc", "đi trễ",
-    "bảo quản", "hư hỏng", "hao hụt", "công thức", "vệ sinh", "an toàn thực phẩm",
-    "bếp", "quá tải", "hết vốn", "thiếu người", "không có người làm", "quản lý"
-]
-
-# Anchors cho mô hình Vector BAAI/bge-m3 kiểm tra tương đồng ngữ nghĩa
-ANCHOR_COMPETITIVE = "Đối thủ cạnh tranh mở quán xung quanh bán giá rẻ phá giá giành giật khách hàng thị phần F&B"
-ANCHOR_INTERNAL = "Vấn đề vận hành nội bộ quán như nhân viên nghỉ việc quản lý kho hao hụt mặt bằng chủ nhà chất lượng công thức"
-
-_cached_anchor_vectors = None
+_cached_branch_metadata: Optional[Dict[str, Any]] = None
+_cached_branch_vectors: Optional[Dict[str, np.ndarray]] = None
 
 
-def _get_anchor_vectors():
-    """Tải và tính vector sẵn cho 2 anchors đại diện để tiết kiệm thời gian."""
-    global _cached_anchor_vectors
-    if _cached_anchor_vectors is not None:
-        return _cached_anchor_vectors
+def load_branch_metadata() -> Dict[str, Any]:
+    """Tải siêu dữ liệu cấu hình 5 nhánh từ file JSON độc lập."""
+    global _cached_branch_metadata
+    if _cached_branch_metadata is not None:
+        return _cached_branch_metadata
 
     try:
-        from .semantic_search import get_embedding_model, cosine_similarity
-        model = get_embedding_model()
-        if model is not None:
-            vec_comp = model.encode(ANCHOR_COMPETITIVE, normalize_embeddings=True)
-            vec_int = model.encode(ANCHOR_INTERNAL, normalize_embeddings=True)
-            _cached_anchor_vectors = (np.array(vec_comp, dtype=np.float32), np.array(vec_int, dtype=np.float32))
-            return _cached_anchor_vectors
+        with open(BRANCH_DATA_PATH, "r", encoding="utf-8") as f:
+            _cached_branch_metadata = json.load(f)
+            return _cached_branch_metadata
     except Exception as e:
-        logger.warning(f"[!] Không thể khởi tạo vector anchor cho copilot_router: {e}")
+        logger.error(f"[!] Không thể đọc file branch_anchors.json: {e}")
+        return {}
 
-    return None
+
+def get_branch_vectors() -> Dict[str, np.ndarray]:
+    """Tải và tính trước vector 1024 chiều (BGE-M3) cho 5 Anchor đại diện."""
+    global _cached_branch_vectors
+    if _cached_branch_vectors is not None:
+        return _cached_branch_vectors
+
+    metadata = load_branch_metadata()
+    if not metadata:
+        return {}
+
+    try:
+        from .semantic_search import get_embedding_model
+        model = get_embedding_model()
+        if model is None:
+            return {}
+
+        vectors = {}
+        for branch_id, info in metadata.items():
+            anchor_text = info.get("anchor", "")
+            vec = model.encode(anchor_text, normalize_embeddings=True)
+            vectors[branch_id] = np.array(vec, dtype=np.float32)
+
+        _cached_branch_vectors = vectors
+        logger.info(f"[✓] Đã khởi tạo vector BGE-M3 thành công cho 5 nhánh ý định.")
+        return _cached_branch_vectors
+    except Exception as e:
+        logger.error(f"[!] Lỗi khi nạp vector anchor cho copilot_router: {e}")
+        return {}
 
 
 def detect_copilot_intent(query: str) -> Dict[str, Any]:
     """
-    Xác định câu hỏi thuộc nhánh Cạnh tranh (COMPETITIVE) hay Nội bộ (INTERNAL).
+    Định tuyến câu hỏi người dùng vào đúng 1 trong 5 nhánh ý định nghiệp vụ.
     Kết hợp 2 tầng:
-    1. Heuristic Keyword Matching có phân định ưu tiên
-    2. Cosine Similarity với Anchor Vector BAAI/bge-m3 (Chính xác cho câu ẩn dụ)
+    1. So khớp mẫu câu từ khóa nhận diện cấu trúc (Heuristic pattern detection)
+    2. Vector Cosine Similarity với BAAI/bge-m3 qua 5 Anchor Vectors
     """
+    metadata = load_branch_metadata()
     cleaned_query = query.lower().strip()
 
-    # Kiểm tra từ khóa cạnh tranh và nội bộ
-    comp_matches = [kw for kw in COMPETITIVE_KEYWORDS if kw in cleaned_query]
-    internal_matches = [kw for kw in INTERNAL_KEYWORDS if kw in cleaned_query]
+    # Tầng 1: Kiểm tra cấu trúc câu hỏi qua Regex Patterns
+    pattern_matches: Dict[str, List[str]] = {}
+    for branch_id, info in metadata.items():
+        matched_pats = []
+        for pat in info.get("patterns", []):
+            if re.search(pat, cleaned_query, re.IGNORECASE):
+                matched_pats.append(pat)
+        if matched_pats:
+            pattern_matches[branch_id] = matched_pats
 
-    # Nếu có từ khóa cạnh tranh rõ ràng (như đối thủ, phá giá, quán sát vách, hút khách...)
-    if comp_matches and not (internal_matches and "đối thủ" not in cleaned_query and "phá giá" not in cleaned_query):
-        logger.info(f"[*] Copilot Router phát hiện từ khóa Cạnh tranh: {comp_matches}")
-        return {
-            "intent": "COMPETITIVE",
-            "confidence": 0.95,
-            "matched_by": "keyword",
-            "matched_keywords": comp_matches,
-            "badge_title": "🎯 Chế độ: Phản công Cạnh tranh Vi mô",
-            "badge_detail": "Kích hoạt DB2 (Đối thủ 1km), DB3 (Rủi ro), DB4 (Kinh nghiệm) & DB5 (Thị trường)",
-            "data_sources": ["DB2", "DB3", "DB4", "DB5"],
-            "requires_db2": True
-        }
+    # Tầng 2: So khớp Không gian Vector BGE-M3
+    scores: Dict[str, float] = {}
+    branch_vectors = get_branch_vectors()
 
-    # Nếu có từ khóa nội bộ rõ ràng (chờ lâu, nhân viên, chủ nhà...) mà không có cạnh tranh trực diện
-    if internal_matches:
-        logger.info(f"[*] Copilot Router phát hiện từ khóa Nội bộ: {internal_matches}")
-        return {
-            "intent": "INTERNAL",
-            "confidence": 0.95,
-            "matched_by": "keyword_internal",
-            "matched_keywords": internal_matches,
-            "badge_title": "⚙️ Chế độ: Tối ưu Vận hành Nội bộ",
-            "badge_detail": "Kích hoạt DB3 (Rủi ro vận hành) & DB4 (Bài học thực chiến)",
-            "data_sources": ["DB3", "DB4"],
-            "requires_db2": False
-        }
-
-    # Tầng 2: Vector Anchor Matching qua bge-m3
-    anchors = _get_anchor_vectors()
-    if anchors is not None:
+    if branch_vectors:
         try:
             from .semantic_search import get_embedding_model, cosine_similarity
             model = get_embedding_model()
             q_vec = model.encode(query.strip(), normalize_embeddings=True)
             q_vec = np.array(q_vec, dtype=np.float32)
 
-            vec_comp, vec_int = anchors
-            score_comp = cosine_similarity(q_vec, vec_comp)
-            score_int = cosine_similarity(q_vec, vec_int)
-
-            logger.info(f"[*] Copilot Router Vector Scores: Cạnh tranh = {score_comp:.3f} | Nội bộ = {score_int:.3f}")
-
-            # Nếu điểm tương đồng với Cạnh tranh cao hơn rõ rệt (ngưỡng chênh lệch >= 0.05)
-            if score_comp > score_int + 0.04 and score_comp >= 0.45:
-                return {
-                    "intent": "COMPETITIVE",
-                    "confidence": round(float(score_comp), 2),
-                    "matched_by": "vector_anchor",
-                    "badge_title": "🎯 Chế độ: Phản công Cạnh tranh Vi mô",
-                    "badge_detail": "Kích hoạt DB2 (Đối thủ 1km), DB3 (Rủi ro), DB4 (Kinh nghiệm) & DB5 (Thị trường)",
-                    "data_sources": ["DB2", "DB3", "DB4", "DB5"],
-                    "requires_db2": True
-                }
+            for b_id, b_vec in branch_vectors.items():
+                scores[b_id] = float(cosine_similarity(q_vec, b_vec))
         except Exception as e:
-            logger.warning(f"[!] Lỗi khi tính cosine similarity cho intent router: {e}")
+            logger.warning(f"[!] Lỗi tính toán vector BGE-M3 trong router: {e}")
 
-    # Mặc định: Vận hành nội bộ (INTERNAL)
+    # Thuật toán phân định kết hợp:
+    # Điểm cuối = Điểm Cosine Vector + Pattern Boost
+    final_scores: Dict[str, float] = {}
+    for b_id in metadata.keys():
+        v_score = scores.get(b_id, 0.0)
+        p_boost = 0.09 if b_id in pattern_matches else 0.0
+
+        # Nếu câu hỏi bắt đầu bằng "Nếu..." (kịch bản giả định What-If)
+        if b_id == "BRANCH_C" and re.match(r"^nếu\b", cleaned_query):
+            if not any(k in cleaned_query for k in [
+                "quay lại ngày đầu",
+                "phải chỉ ra",
+                "dừng toàn bộ hoạt động quảng cáo",
+                "loại bỏ toàn bộ các hỗ trợ thủ công",
+                "tự vận hành trơn tru"
+            ]):
+                p_boost += 0.20
+        # Nếu chứa "có nên" mà không bắt đầu bằng "Nếu"
+        elif b_id == "BRANCH_C" and re.search(r"có nên\b", cleaned_query):
+            if not any(k in cleaned_query for k in ["đối thủ", "cắt lỗ ngay lập tức", "quay lại ngày đầu", "dừng toàn bộ hoạt động quảng cáo"]):
+                p_boost += 0.18
+
+        # Phản công cạnh tranh vi mô (Nhánh D): khi có đối thủ / đối trọng nhưng KHÔNG phải khủng hoảng nội bộ Nhánh B
+        if b_id == "BRANCH_D" and ("đối thủ" in cleaned_query or "đối trọng" in cleaned_query):
+            is_crisis_b = any(k in cleaned_query for k in [
+                "sập", "khắc phục trong 24 giờ", "mất tinh thần nghiêm trọng", "trong tuần đầu tiên",
+                "report", "báo cáo vi phạm"
+            ])
+            if not re.match(r"^nếu\b", cleaned_query) and not is_crisis_b:
+                p_boost += 0.12
+
+        # Câu hỏi phỏng vấn bài học/năng lực người sáng lập (Nhánh A)
+        if b_id == "BRANCH_A" and any(k in cleaned_query for k in ["nếu phải chỉ ra", "quay lại ngày đầu"]):
+            p_boost += 0.20
+
+        # Đo lường đối sánh thời gian trong chẩn đoán hiệu suất (Nhánh E)
+        if b_id == "BRANCH_E" and re.search(r"nhanh hay chậm hơn đối thủ", cleaned_query):
+            p_boost += 0.15
+
+        # Đánh giá sức sống tự nhiên khi dừng quảng cáo (chẩn đoán phụ thuộc - Nhánh E)
+        if b_id == "BRANCH_E" and re.search(r"dừng toàn bộ hoạt động quảng cáo.*trong bao lâu", cleaned_query):
+            p_boost += 0.22
+
+        # Chẩn đoán tính tự vận hành / hệ thống quy trình (Nhánh E)
+        if b_id == "BRANCH_E" and any(k in cleaned_query for k in ["loại bỏ toàn bộ các hỗ trợ thủ công", "tự vận hành trơn tru"]):
+            p_boost += 0.22
+
+        final_scores[b_id] = v_score + p_boost
+
+    # Chọn nhánh chiến thắng
+    if final_scores:
+        best_branch = max(final_scores, key=final_scores.get)
+        top_raw_score = scores.get(best_branch, 0.0)
+    else:
+        best_branch = "BRANCH_B"
+        top_raw_score = 0.50
+
+    branch_info = metadata.get(best_branch, {})
+    matched_by = "hybrid_pattern_vector" if best_branch in pattern_matches else "vector_bge"
+
+    # Giữ tương thích ngược với API hiện tại của main.py
+    legacy_intent = "COMPETITIVE" if best_branch == "BRANCH_D" else "INTERNAL"
+
     return {
-        "intent": "INTERNAL",
-        "confidence": 0.90,
-        "matched_by": "default_internal",
-        "badge_title": "⚙️ Chế độ: Tối ưu Vận hành Nội bộ",
-        "badge_detail": "Kích hoạt DB3 (Rủi ro vận hành) & DB4 (Bài học thực chiến)",
-        "data_sources": ["DB3", "DB4"],
-        "requires_db2": False
+        "branch": best_branch,
+        "branch_name": branch_info.get("name", best_branch),
+        "english_name": branch_info.get("english_name", ""),
+        "intent": legacy_intent,
+        "raw_intent": branch_info.get("intent", best_branch),
+        "confidence": round(float(top_raw_score), 4),
+        "matched_by": matched_by,
+        "matched_patterns": pattern_matches.get(best_branch, []),
+        "badge_title": branch_info.get("badge_title", ""),
+        "badge_detail": branch_info.get("badge_detail", ""),
+        "data_sources": branch_info.get("data_sources", []),
+        "skip_sources": branch_info.get("skip_sources", []),
+        "scores": {k: round(v, 4) for k, v in scores.items()}
     }

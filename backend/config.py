@@ -29,7 +29,7 @@ MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME", "MLAI_Hackathon_2026")
 
 # Cấu hình Máy chủ LLM Ollama cục bộ
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen3.5:4b")
 
 # Cấu hình Mô hình Vector Embedding (BAAI/bge-m3)

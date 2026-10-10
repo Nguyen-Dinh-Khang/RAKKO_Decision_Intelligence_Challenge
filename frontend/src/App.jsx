@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import FeasibilityScanner from './components/FeasibilityScanner';
 import TacticalCopilot from './components/TacticalCopilot';
+import StoreProfile from './components/StoreProfile';
 
 /**
  * App - Ứng dụng chính của Nền tảng Ra quyết định (Client App)
@@ -102,9 +103,7 @@ export default function App() {
   };
 
   return (
-    <div className={`flex flex-col bg-slate-50 text-slate-800 ${
-      activeTab === 'copilot' ? 'h-screen overflow-hidden' : 'min-h-screen'
-    }`}>
+    <div className="flex flex-col bg-slate-50 text-slate-800 h-screen overflow-hidden">
       
       {/* 1. Header Điều hướng */}
       <Navbar 
@@ -117,11 +116,7 @@ export default function App() {
       />
 
       {/* 2. Vùng nội dung chính */}
-      <main className={`flex-1 w-full ${
-        activeTab === 'copilot' 
-          ? 'h-[calc(100vh-65px)] overflow-hidden p-0 max-w-none' 
-          : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'
-      }`}>
+      <main className="flex-1 w-full h-[calc(100vh-65px)] overflow-hidden p-0 max-w-none">
         
         {loadingMeta ? (
           <div className="h-96 flex flex-col items-center justify-center space-y-4">
@@ -146,27 +141,22 @@ export default function App() {
                 savedStrategy={savedStrategy}
               />
             )}
+
+            {activeTab === 'profile' && (
+              <StoreProfile 
+                metadata={metadata}
+                currentUser={currentUser}
+                savedStrategy={savedStrategy}
+                onStrategyUpdated={() => {
+                  const token = localStorage.getItem('mlai_user_token');
+                  if (token) fetchActiveStrategy(token);
+                }}
+              />
+            )}
           </>
         )}
 
       </main>
-
-      {/* 3. Footer (Chỉ hiển thị ở Tab Máy Quét) */}
-      {activeTab !== 'copilot' && (
-        <footer className="border-t border-slate-200 bg-white py-6">
-          <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 space-y-1">
-            <p className="font-semibold text-slate-700">
-              MLAI Decision Intelligence & Tactical Co-pilot Platform © 2026
-            </p>
-            <p>
-              Mô hình Song Trụ (Dual-Engine): Máy quét Thẩm định (Day 0) & Trợ lý Đồng hành (Day 1 - 365).
-            </p>
-            <p className="text-[11px] text-slate-400">
-              Sử dụng 5 CSDL chuẩn hóa (MongoDB Atlas) • Embedding BAAI/bge-m3 • LLM Qwen3.5 4B qua Ollama
-            </p>
-          </div>
-        </footer>
-      )}
 
     </div>
   );

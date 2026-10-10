@@ -64,3 +64,23 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# 8. Test Scripts & Dữ liệu Kiểm thử (Chỉ phục vụ dev/kiểm thử, loại bỏ khỏi vận hành)
+test_*.py
+*_test.py
+test_e2e.py
+test_router_*.py
+test_case.md
+test_case*.md
+tests/
+__tests__/
+*.test.*
+*.spec.*
+
+# 9. AI Assistant & Scratch Files (File của AI trợ lý)
+GEMINI.md
+.gemini/
+.antigravity/
+scratch/
+*.scratch.*
+

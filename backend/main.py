@@ -8,6 +8,7 @@ Hỗ trợ:
 """
 
 import sys
+import re
 import json
 import logging
 import hashlib
@@ -41,10 +42,11 @@ from .config import PORT, HOST, LLM_MODEL, EMBEDDING_MODEL
 from .database import check_mongo_health, get_db
 from .tag_manager import tag_manager
 from .pipeline.spatial_engine import SpatialEngine, geocode_address
-from .pipeline.market_gap_engine import MarketGapEngine
-from .pipeline.stress_test_engine import StressTestEngine
+from .pipeline.market_analyse import MarketAnalyseEngine, analyse_market
+from .pipeline.stress_test import StressTestEngine, run_stress_test, load_financial_profiles
+from .pipeline.stress_test.config import DEFAULT_RENT_BY_MODEL
+from .pipeline.tactical_playbook import TacticalPlaybookEngine, run_tactical_playbook
 from .pipeline.semantic_search import SemanticSearchEngine
-from .pipeline.distillation import DistillationEngine
 from .pipeline.llm_copilot import LLMCopilot
 from .pipeline.copilot_router import detect_copilot_intent
 
@@ -66,10 +68,11 @@ app.add_middleware(
 
 # Khởi tạo các mắt xích pipeline
 spatial_engine = SpatialEngine()
-market_gap_engine = MarketGapEngine()
+market_analyse_engine = MarketAnalyseEngine()
+market_gap_engine = market_analyse_engine
 stress_test_engine = StressTestEngine()
+tactical_playbook_engine = TacticalPlaybookEngine()
 semantic_search_engine = SemanticSearchEngine()
-distillation_engine = DistillationEngine()
 llm_copilot = LLMCopilot()
 
 
@@ -94,6 +97,7 @@ class CopilotChatRequest(BaseModel):
     coordinates: Optional[Dict[str, float]] = Field(None, description="Tọa độ {'lng': float, 'lat': float} (tùy chọn)")
     product_ids: Optional[List[int]] = Field(None, description="Danh sách mã sản phẩm bán (tùy chọn)")
     conversation_history: Optional[List[Dict[str, str]]] = Field(None, description="Lịch sử đối thoại trước đó")
+    mode: Optional[str] = Field(None, description="Chế độ kiểm thử: 'part_1' (định tuyến 5 nhánh) hoặc 'full'")
 
 
 class RegisterRequest(BaseModel):
@@ -110,12 +114,37 @@ class LoginRequest(BaseModel):
 
 
 class SaveStrategyRequest(BaseModel):
-    """Dữ liệu lưu kế sách chiến lược (Không lưu budget và rent)"""
+    """Dữ liệu lưu kế sách chiến lược kèm thông số vốn, tiền thuê, nhân sự và tệp khách hàng"""
     address: str = Field(..., description="Địa chỉ kinh doanh")
     coordinates: Dict[str, float] = Field(..., description="Tọa độ chuẩn xác {'lng': float, 'lat': float}")
     model_id: int = Field(..., description="Mã mô hình (101 - 110)")
     product_ids: List[int] = Field(..., description="Danh sách mã sản phẩm (201 - 220)")
     report_result: Dict[str, Any] = Field(..., description="Bản báo cáo kế sách 4 khối từ Giao diện 1")
+    budget: Optional[float] = Field(None, description="Số vốn ban đầu (VNĐ)")
+    rent: Optional[float] = Field(None, description="Tiền thuê mặt bằng dự kiến (VNĐ/tháng)")
+    staff_count: Optional[int] = Field(None, description="Số lượng nhân viên")
+    avg_salary: Optional[int] = Field(None, description="Lương trung bình mỗi nhân viên (VNĐ/tháng)")
+    customer_segment_ids: Optional[List[int]] = Field(None, description="Danh sách mã phân khúc khách hàng chủ đạo (301 - 304)")
+
+
+
+class UpdateProfileRequest(BaseModel):
+    """Dữ liệu cập nhật hồ sơ quán thực tế (profile)"""
+    budget: int = Field(..., description="Vốn thực tế còn lại (VNĐ)")
+    rent: int = Field(..., description="Tiền thuê mặt bằng hiện tại (VNĐ/tháng)")
+    staff_count: Optional[int] = Field(0, description="Số lượng nhân viên hiện tại")
+    avg_salary: Optional[int] = Field(0, description="Tiền lương trung bình mỗi nhân viên (VNĐ/tháng)")
+    customer_segment_ids: Optional[List[int]] = Field(default_factory=list, description="Danh sách mã phân khúc khách hàng chủ đạo (301 - 304)")
+    month_set: str = Field(..., description="Tháng ghi nhận (YYYY-MM)")
+
+
+
+class MonthlyLogRequest(BaseModel):
+    """Dữ liệu nhật ký tài chính từng tháng (monthly_logs)"""
+    month: str = Field(..., description="Tháng ghi nhận YYYY-MM (Ví dụ: 2026-07)")
+    revenue: int = Field(..., description="Doanh thu thực tế (VNĐ)")
+    cost: int = Field(..., description="Tổng chi phí thực tế đã bao gồm tiền nhà (VNĐ)")
+    note: Optional[str] = Field("", description="Ghi chú sự kiện thực tế trong tháng")
 
 
 # =====================================================================
@@ -138,7 +167,7 @@ def verify_password(password: str, salt: str, expected_hash: str) -> bool:
 
 def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[Dict[str, Any]]:
     """Trích xuất và kiểm tra session người dùng từ Authorization Header."""
-    if not authorization or not authorization.startswith("Bearer "):
+    if not authorization or not isinstance(authorization, str) or not authorization.startswith("Bearer "):
         return None
     token = authorization.split("Bearer ", 1)[1].strip()
     if not token:
@@ -261,7 +290,10 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
     """
     Lưu trữ cấu hình mô hình (1xx), món định bán (2xx), địa chỉ, tọa độ [lng, lat]
     và toàn bộ Kế sách chiến lược (báo cáo 4 khối) của người dùng vào MongoDB.
-    Lưu ý: Không lưu budget và rent để người dùng linh hoạt thử nghiệm dòng tiền.
+    Tự động khởi tạo 3 khối thời gian:
+    - profile: Vốn hiện tại, tiền thuê, tháng ghi nhận
+    - simulation_profile: Doanh thu mục tiêu, biên lợi nhuận kỳ vọng, runway cạn vốn ban đầu
+    - monthly_logs: Giữ nguyên lịch sử sổ sách nếu đã có
     """
     user = get_current_user(authorization)
     if not user:
@@ -276,18 +308,146 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
     model_name = business_models.get(req.model_id, f"Mô hình {req.model_id}")
     product_names = [products_map.get(pid, f"Sản phẩm {pid}") for pid in req.product_ids]
     
+    # Lấy tài liệu hiện tại nếu đã có để không ghi đè mất monthly_logs
+    existing_doc = db["user_strategies"].find_one({"username": user["username"]})
+    current_month_str = datetime.now().strftime("%Y-%m")
+
+    # 1. Khởi tạo / cập nhật Khối profile hiện tại
+    init_budget = int(req.budget) if req.budget is not None and req.budget > 0 else (
+        existing_doc.get("profile", {}).get("budget", 0) if (existing_doc and isinstance(existing_doc.get("profile"), dict)) else 0
+    )
+    init_rent = int(req.rent) if req.rent is not None and req.rent >= 0 else (
+        existing_doc.get("profile", {}).get("rent", 0) if (existing_doc and isinstance(existing_doc.get("profile"), dict)) else 0
+    )
+
+    # TỰ ĐỘNG LẤY DỮ LIỆU TỪ BỘ GIẢ LẬP (SIMULATION DATA) ĐỂ THIẾT LẬP PROFILE:
+    # A. Nhân sự & Lương: Lấy tự động theo mô hình kinh doanh từ cấu hình giả lập (financial_profiles.json / stress_test)
+    fin_profiles = load_financial_profiles().get("business_model_profiles", {})
+    bm_profile = fin_profiles.get(str(int(req.model_id)), {})
+    sim_staff_count = int(bm_profile.get("staff_count", 2))
+    sim_avg_salary = int(bm_profile.get("staff_salary_per_person", 6_000_000))
+
+    # Nếu stress_test trong kết quả thẩm định có ghi nhận số nhân sự:
+    stress_data = req.report_result.get("stress_test") if isinstance(req.report_result, dict) else []
+    if isinstance(stress_data, list) and len(stress_data) > 0 and isinstance(stress_data[0], dict):
+        raw_staff = stress_data[0].get("staff_count")
+        if raw_staff is not None:
+            try:
+                sim_staff_count = int(raw_staff)
+            except (ValueError, TypeError):
+                pass
+    elif isinstance(stress_data, dict):
+        raw_staff = stress_data.get("staff_count")
+        if raw_staff is not None:
+            try:
+                sim_staff_count = int(raw_staff)
+            except (ValueError, TypeError):
+                pass
+
+    # Bỏ +1 chủ quán ra: Số lượng nhân sự trong profile chỉ tính nhân viên làm cùng, không tính chủ quán
+    sim_staff_count = max(0, sim_staff_count - 1)
+
+    # B. Tệp khách hàng mục tiêu: Lấy tự động từ phân bổ độ tuổi dân cư khu vực 3km (demographics.age_distribution)
+    # Quy tắc: Chỉ lưu đúng duy nhất 1 tệp khách hàng chủ lực (dominant segment)
+    demographics = req.report_result.get("demographics", {}) if isinstance(req.report_result, dict) else {}
+    age_dist = demographics.get("age_distribution", {}) if isinstance(demographics, dict) else {}
+
+    AGE_KEY_TO_TAG = {
+        "18_24": 301, "18-24": 301,
+        "25_34": 302, "25-34": 302,
+        "35_50": 303, "35-50": 303,
+        "over_50": 304, ">50": 304, "50+": 304, "> 50": 304
+    }
+
+    def safe_float(val):
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return 0.0
+
+    if age_dist and isinstance(age_dist, dict):
+        sorted_ages = sorted(
+            [(k, safe_float(v)) for k, v in age_dist.items() if k in AGE_KEY_TO_TAG],
+            key=lambda x: x[1],
+            reverse=True
+        )
+        sim_seg_ids = [AGE_KEY_TO_TAG[k] for k, _ in sorted_ages[:1]] if sorted_ages else [301]
+    elif req.customer_segment_ids is not None and len(req.customer_segment_ids) > 0:
+        sim_seg_ids = [int(sid) for sid in req.customer_segment_ids[:1]]
+    else:
+        sim_seg_ids = [301]
+
+    if not sim_seg_ids:
+        sim_seg_ids = [301]
+
+    segment_map = {seg["id"]: seg["name"] for seg in tag_manager.get_customer_segments()}
+    sim_seg_names = [segment_map.get(sid, f"Phân khúc {sid}") for sid in sim_seg_ids]
+
+    profile_data = {
+        "budget": init_budget,
+        "rent": init_rent,
+        "staff_count": sim_staff_count,
+        "avg_salary": sim_avg_salary,
+        "customer_segment_ids": sim_seg_ids,
+        "customer_segments": sim_seg_names,
+        "month_set": current_month_str
+    }
+
+
+    # 2. Khởi tạo Khối simulation_profile từ kết quả Thẩm định Day 0
+    # Lấy runway_months từ kết quả stress_test
+    stress_test = req.report_result.get("stress_test") if isinstance(req.report_result, dict) else []
+    runway_val = 5
+    try:
+        if isinstance(stress_test, list) and len(stress_test) > 0 and isinstance(stress_test[0], dict):
+            raw_month = stress_test[0].get("month") if stress_test[0].get("month") is not None else stress_test[0].get("runway_months", 5.0)
+            runway_val = int(float(raw_month or 5.0))
+        elif isinstance(stress_test, dict):
+            raw_month = stress_test.get("month") if stress_test.get("month") is not None else stress_test.get("runway_months", 5.0)
+            runway_val = int(float(raw_month or 5.0))
+    except Exception:
+        runway_val = 5
+    runway_val = max(0, runway_val)
+
+    # Biên lợi nhuận chuẩn theo mô hình kinh doanh
+    margin_benchmarks = {
+        101: 40.0, 102: 55.0, 103: 30.0, 104: 35.0, 105: 35.0,
+        106: 20.0, 107: 40.0, 108: 60.0, 109: 50.0, 110: 25.0
+    }
+    expected_margin = float(margin_benchmarks.get(int(req.model_id), 35.0))
+
+    # Doanh thu mục tiêu ước tính (Target Monthly Revenue)
+    # Ước lượng dựa trên tiền thuê và biên lãi
+    base_fixed_costs = init_rent + 15_000_000 if init_rent > 0 else 30_000_000
+    target_rev = int((base_fixed_costs * 1.5) / (expected_margin / 100.0))
+    target_rev = max(40_000_000, round(target_rev / 1_000_000) * 1_000_000)
+
+    simulation_data = {
+        "target_monthly_revenue": target_rev,
+        "expected_margin_pct": expected_margin,
+        "zero_revenue_runway_months": runway_val
+    }
+
+    # 3. Bảo toàn Khối monthly_logs đã có
+    monthly_logs = existing_doc.get("monthly_logs", []) if existing_doc else []
+
     strategy_doc = {
         "username": user["username"],
         "address": req.address.strip(),
         "coordinates": {
-            "lng": float(req.coordinates.get("lng", 0.0)),
-            "lat": float(req.coordinates.get("lat", 0.0))
+            "lng": float(req.coordinates.get("lng") or 0.0),
+            "lat": float(req.coordinates.get("lat") or 0.0)
         },
         "model_id": req.model_id,
         "model_name": model_name,
         "product_ids": req.product_ids,
         "product_names": product_names,
+        "customer_segment_ids": sim_seg_ids,
+        "customer_segments": sim_seg_names,
         "report_result": req.report_result,
+        "profile": profile_data,
+        "simulation_profile": simulation_data,
+        "monthly_logs": monthly_logs,
         "is_active": True,
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
@@ -309,16 +469,175 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
             "model_name": strategy_doc["model_name"],
             "product_ids": strategy_doc["product_ids"],
             "product_names": strategy_doc["product_names"],
+            "customer_segment_ids": strategy_doc["customer_segment_ids"],
+            "customer_segments": strategy_doc["customer_segments"],
+            "profile": strategy_doc["profile"],
+            "simulation_profile": strategy_doc["simulation_profile"],
+            "monthly_logs": strategy_doc["monthly_logs"],
             "updated_at": strategy_doc["updated_at"]
         }
     }
+
+
+@app.post("/api/user/strategy/profile")
+def update_user_profile(req: UpdateProfileRequest, authorization: Optional[str] = Header(None)):
+    """
+    Cập nhật thông tin thực tế hồ sơ quán (profile):
+    - budget: Vốn thực tế còn lại
+    - rent: Tiền thuê mặt bằng hiện tại
+    - staff_count: Số lượng nhân sự hiện tại
+    - avg_salary: Lương bình quân mỗi nhân sự
+    - customer_segment_ids: Danh sách phân khúc khách hàng mục tiêu
+    - month_set: Tháng chốt số liệu (YYYY-MM)
+    """
+    user = get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để cập nhật hồ sơ quán!")
+    
+    db = get_db()
+    strat = db["user_strategies"].find_one({"username": user["username"]})
+    if not strat:
+        raise HTTPException(status_code=404, detail="Chưa có hồ sơ kế sách của người dùng!")
+    
+    clean_seg_ids = [int(sid) for sid in (req.customer_segment_ids or [])][:1]
+    if not clean_seg_ids:
+        clean_seg_ids = [301]
+    segment_map = {seg["id"]: seg["name"] for seg in tag_manager.get_customer_segments()}
+    clean_seg_names = [segment_map.get(sid, f"Phân khúc {sid}") for sid in clean_seg_ids]
+
+    profile_data = {
+        "budget": int(req.budget),
+        "rent": int(req.rent),
+        "staff_count": int(req.staff_count or 0),
+        "avg_salary": int(req.avg_salary or 0),
+        "customer_segment_ids": clean_seg_ids,
+        "customer_segments": clean_seg_names,
+        "month_set": req.month_set.strip()
+    }
+
+    db["user_strategies"].update_one(
+        {"username": user["username"]},
+        {"$set": {
+            "profile": profile_data,
+            "customer_segment_ids": clean_seg_ids,
+            "customer_segments": clean_seg_names,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    logger.info(f"[✓] User '{user['username']}' đã cập nhật profile: Vốn {req.budget:,.0f}đ, Thuê {req.rent:,.0f}đ, NV {req.staff_count or 0} (Lương {req.avg_salary or 0:,.0f}đ), Tệp KH: {clean_seg_names} ({req.month_set})")
+    return {
+        "status": "success",
+        "message": "Đã cập nhật hồ sơ quán thành công!",
+        "profile": profile_data,
+        "customer_segment_ids": clean_seg_ids,
+        "customer_segments": clean_seg_names
+    }
+
+
+@app.post("/api/user/strategy/monthly_log")
+def upsert_monthly_log(req: MonthlyLogRequest, authorization: Optional[str] = Header(None)):
+    """
+    Ghi nhận hoặc cập nhật nhật ký tài chính một tháng (monthly_logs).
+    Backend Python tự động tính toán:
+    - profit = revenue - cost
+    - margin_pct = (profit / revenue) * 100%
+    """
+    user = get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để ghi chép sổ sách tháng!")
+    
+    clean_month = req.month.strip()
+    if not re.match(r"^\d{4}-\d{2}$", clean_month):
+        raise HTTPException(status_code=400, detail="Định dạng tháng phải là YYYY-MM (Ví dụ: 2026-07)")
+    
+    db = get_db()
+    strat = db["user_strategies"].find_one({"username": user["username"]})
+    if not strat:
+        raise HTTPException(status_code=404, detail="Chưa tìm thấy hồ sơ kế sách để lưu sổ sách tháng!")
+    
+    # Tính toán tự động chuẩn xác bằng Python (Deterministic Math)
+    profit = int(req.revenue) - int(req.cost)
+    margin_pct = round((profit / float(req.revenue)) * 100.0, 1) if req.revenue > 0 else 0.0
+
+    monthly_logs = strat.get("monthly_logs", [])
+    updated = False
+
+    for log in monthly_logs:
+        if log.get("month") == clean_month:
+            log["revenue"] = int(req.revenue)
+            log["cost"] = int(req.cost)
+            log["profit"] = profit
+            log["margin_pct"] = margin_pct
+            log["note"] = req.note.strip() if req.note else ""
+            updated = True
+            break
+    
+    if not updated:
+        monthly_logs.append({
+            "month": clean_month,
+            "revenue": int(req.revenue),
+            "cost": int(req.cost),
+            "profit": profit,
+            "margin_pct": margin_pct,
+            "note": req.note.strip() if req.note else ""
+        })
+    
+    # Sắp xếp các tháng theo thứ tự tăng dần (cũ đến mới)
+    monthly_logs.sort(key=lambda x: x.get("month", ""))
+
+    db["user_strategies"].update_one(
+        {"username": user["username"]},
+        {"$set": {
+            "monthly_logs": monthly_logs,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    logger.info(f"[✓] User '{user['username']}' ghi sổ tháng {clean_month}: Doanh thu {req.revenue:,.0f}đ, Lãi {profit:,.0f}đ")
+    return {
+        "status": "success",
+        "message": f"Đã lưu sổ sách tháng {clean_month} thành công!",
+        "entry": {
+            "month": clean_month,
+            "revenue": int(req.revenue),
+            "cost": int(req.cost),
+            "profit": profit,
+            "margin_pct": margin_pct,
+            "note": req.note.strip() if req.note else ""
+        },
+        "monthly_logs": monthly_logs
+    }
+
+
+@app.delete("/api/user/strategy/monthly_log/{month}")
+def delete_monthly_log(month: str, authorization: Optional[str] = Header(None)):
+    """Xóa nhật ký tài chính của một tháng cụ thể."""
+    user = get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập!")
+    
+    db = get_db()
+    strat = db["user_strategies"].find_one({"username": user["username"]})
+    if not strat:
+        raise HTTPException(status_code=404, detail="Không tìm thấy hồ sơ quán!")
+    
+    monthly_logs = [log for log in strat.get("monthly_logs", []) if log.get("month") != month]
+    db["user_strategies"].update_one(
+        {"username": user["username"]},
+        {"$set": {
+            "monthly_logs": monthly_logs,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    return {"status": "success", "message": f"Đã xóa sổ sách tháng {month}!", "monthly_logs": monthly_logs}
 
 
 @app.get("/api/user/strategy/active")
 def get_active_strategy(authorization: Optional[str] = Header(None)):
     """
     Truy xuất kế sách chiến lược đang áp dụng của người dùng đã đăng nhập.
-    Tự động phục vụ việc hiển thị lại thông tin cá nhân và kế hoạch hành động.
+    Bao gồm cả 3 khối: profile, simulation_profile, monthly_logs.
     """
     user = get_current_user(authorization)
     if not user:
@@ -329,6 +648,17 @@ def get_active_strategy(authorization: Optional[str] = Header(None)):
     if not doc:
         return {"has_strategy": False, "strategy": None}
     
+    current_month_str = datetime.now().strftime("%Y-%m")
+    strat_profile = doc.get("profile", {}) if isinstance(doc.get("profile"), dict) else {}
+    seg_ids = (doc.get("customer_segment_ids") or strat_profile.get("customer_segment_ids", []))[:1]
+    seg_names = (doc.get("customer_segments") or strat_profile.get("customer_segments", []))[:1]
+
+    prod_ids = doc.get("product_ids") or strat_profile.get("product_ids", [])
+    prod_names = doc.get("product_names") or strat_profile.get("product_names", [])
+    if (not prod_names or len(prod_names) == 0) and prod_ids:
+        products_map = {p["id"]: p["name"] for p in tag_manager.get_products()}
+        prod_names = [products_map.get(pid, f"Sản phẩm {pid}") for pid in prod_ids]
+
     return {
         "has_strategy": True,
         "strategy": {
@@ -336,12 +666,32 @@ def get_active_strategy(authorization: Optional[str] = Header(None)):
             "coordinates": doc.get("coordinates", {}),
             "model_id": doc.get("model_id"),
             "model_name": doc.get("model_name", ""),
-            "product_ids": doc.get("product_ids", []),
-            "product_names": doc.get("product_names", []),
+            "product_ids": prod_ids,
+            "product_names": prod_names,
+            "customer_segment_ids": seg_ids,
+            "customer_segments": seg_names,
             "report_result": doc.get("report_result", {}),
+            "profile": {
+                "budget": strat_profile.get("budget", 0),
+                "rent": strat_profile.get("rent", 0),
+                "staff_count": strat_profile.get("staff_count", 0),
+                "avg_salary": strat_profile.get("avg_salary", 0),
+                "customer_segment_ids": seg_ids,
+                "customer_segments": seg_names,
+                "product_ids": prod_ids,
+                "product_names": prod_names,
+                "month_set": strat_profile.get("month_set", current_month_str)
+            },
+            "simulation_profile": doc.get("simulation_profile", {
+                "target_monthly_revenue": 60_000_000,
+                "expected_margin_pct": 35.0,
+                "zero_revenue_runway_months": 5
+            }),
+            "monthly_logs": doc.get("monthly_logs", []),
             "updated_at": doc.get("updated_at", "")
         }
     }
+
 
 @app.get("/api/health")
 def health_check():
@@ -362,6 +712,7 @@ def get_metadata():
     Trả về danh mục:
     - 10 Mô hình kinh doanh
     - 20 Nhóm sản phẩm chuẩn hóa
+    - 4 Phân khúc khách hàng mục tiêu
     - Danh sách gợi ý các địa chỉ phổ biến tại TP.HCM
     """
     suggested_locations = [
@@ -374,6 +725,7 @@ def get_metadata():
     return {
         "business_models": tag_manager.get_business_models(),
         "products": tag_manager.get_products(),
+        "customer_segments": tag_manager.get_customer_segments(),
         "suggested_locations": suggested_locations
     }
 
@@ -382,12 +734,13 @@ def get_metadata():
 def evaluate_business_feasibility(req: FeasibilityRequest):
     """
     GIAO DIỆN 1: MÁY QUÉT THẨM ĐỊNH Ý TƯỞNG (DAY 0)
-    Chạy trọn vẹn quy trình 4 mắt xích:
+    Chạy trọn vẹn quy trình các mắt xích:
     1. Geocoding -> Tọa độ & Dân cư 3km (DB1)
     2. Quét Đối thủ 1km (DB2)
-    3. So khớp tìm Lỗ hổng thị trường (DB2 x DB5)
-    4. Thử tải tài chính & Runway (DB3)
-    5. LLM Qwen3.5 4B tổng hợp ra bản báo cáo 4 khối súc tích.
+    3. Phân tích Thị trường Vi mô (market_analyse_engine: CTS, Gom cụm BGE-M3, Giá, Giờ vàng)
+    4. Thử tải sinh tồn (stress_test_engine: Zero-revenue Runway simulator)
+    5. Sách lược Chiến thuật (tactical_playbook_engine: 4 Vấn đề DB3 & 4 Kinh nghiệm DB4)
+    6. LLM Qwen3.5 4B tổng hợp ra bản báo cáo thẩm định thực chiến.
     """
     try:
         logger.info(f"[*] Bắt đầu thẩm định cho địa chỉ: {req.address} | Vốn: {req.budget:,.0f}đ")
@@ -403,23 +756,49 @@ def evaluate_business_feasibility(req: FeasibilityRequest):
             product_ids=req.product_ids
         )
 
-        # Mắt xích 2: Máy dò Lỗ hổng Thị trường (DB2 x DB5)
-        market_gaps = market_gap_engine.find_market_gaps(
-            competitors_1km=competitors,
+        # Mắt xích 2: Phân tích Thị trường Vi mô (DB2 x DB5 x DB4)
+        market_analysis = market_analyse_engine.analyse_market(
+            competitors=competitors,
             model_id=req.model_id,
             product_ids=req.product_ids,
             demographics=demographics,
             budget=req.budget
         )
 
-        # Mắt xích 3: Bộ Thử tải Rủi ro & Đo Sức sống Vốn (DB3)
+        # Bổ sung danh sách thẻ market_gaps để bảo đảm tương thích ngược với Frontend
+        gap_cards = []
+        mw = market_analysis.get("market_weakness", {})
+        if isinstance(mw, dict) and mw.get("important_weakness"):
+            gap_cards.append({
+                "title": "Tử huyệt đối thủ lớn nhất",
+                "detail": mw["important_weakness"]
+            })
+        for nw in (mw.get("normal_weakness", []) if isinstance(mw, dict) else []):
+            gap_cards.append({
+                "title": "Điểm yếu hệ thống khu vực",
+                "detail": nw
+            })
+        for ag in market_analysis.get("against_weakness", []):
+            gap_cards.append({
+                "title": "Đòn đánh hóa giải đề xuất",
+                "detail": ag.get("lesson", "") if isinstance(ag, dict) else str(ag)
+            })
+        market_analysis["market_gaps"] = gap_cards
+
+        # Mắt xích 3: Bộ Thử tải Rủi ro & Đo Sức sống Vốn (Zero-Revenue Runway)
+        has_dual = market_analysis.get("has_dual_strategies", False)
         stress_test = stress_test_engine.run_stress_test(
             budget=req.budget,
             monthly_rent=req.rent,
             business_model_id=req.model_id,
             product_ids=req.product_ids,
-            area_name=display_addr,
-            has_dual_plans=market_gaps.get("has_dual_strategies", False)
+            has_dual_strategies=has_dual
+        )
+
+        # Mắt xích 4: Sách lược Chiến thuật Đa dạng (DB3 x DB4 qua Tag 0 & Greedy Diversity Pruning)
+        tactical_playbook = tactical_playbook_engine.run_tactical_playbook(
+            model_id=req.model_id,
+            product_ids=req.product_ids
         )
 
         # Mắt xích 6: LLM Reasoning (Qwen3.5 4B qua Ollama)
@@ -427,21 +806,93 @@ def evaluate_business_feasibility(req: FeasibilityRequest):
         product_names = [tag_manager.get_tag_name(pid) for pid in req.product_ids]
         products_str = ", ".join(product_names)
 
+        rent_val = float(req.rent) if (req.rent is not None and req.rent >= 0) else float(DEFAULT_RENT_BY_MODEL.get(int(req.model_id), 10_000_000))
+
         form_summary = {
             "address": display_addr,
             "model_name": model_name,
+            "model_id": req.model_id,
             "products_str": products_str,
+            "product_ids": req.product_ids,
             "budget": req.budget,
-            "rent": req.rent or stress_test.get("monthly_rent", 0)
+            "rent": rent_val
         }
 
         ai_report = llm_copilot.evaluate_feasibility(
             form_data=form_summary,
             demographics=demographics,
             competitors=competitors,
-            market_gaps=market_gaps,
-            stress_test=stress_test
+            market_gaps=market_analysis,
+            stress_test=stress_test,
+            tactical_playbook=tactical_playbook
         )
+
+        # Kiểm tra sức sống vốn (Runway): Nếu cạn vốn ngay ngày đầu (<= 0), không gửi thông tin đối thủ, tấn công 3 mảng & playbook
+        runway_val = 0.0
+        if isinstance(stress_test, list) and len(stress_test) > 0:
+            runway_val = float(stress_test[0].get("month", stress_test[0].get("runway_months", 0.0)))
+        elif isinstance(stress_test, dict):
+            runway_val = float(stress_test.get("month", stress_test.get("runway_months", 0.0)))
+        is_red_alert = (runway_val <= 0.0)
+
+        # Thu thập toàn bộ ID và thông tin tóm tắt của các Object thực tế được sử dụng
+        all_competitors_processed = competitors if competitors else []
+        used_problems = (tactical_playbook.get("top_4_problems", []) if tactical_playbook else [])
+        used_exps = (tactical_playbook.get("top_4_experiences", []) if tactical_playbook else [])
+        market_weakness_lessons = (market_analysis.get("against_weakness", []) if market_analysis else [])
+        cust_insights = market_analysis.get("customer_insights", {}) if market_analysis else {}
+
+        all_competitor_ids = [str(c.get("_id", c.get("id", ""))) for c in all_competitors_processed if (c.get("_id") or c.get("id"))]
+
+        all_used_ids = {
+            "db1_demographics_id": demographics.get("id") or str(demographics.get("_id", "")),
+            "db2_competitor_ids": all_competitor_ids,
+            "db3_problem_ids": [p.get("id") for p in used_problems if p.get("id")],
+            "db4_experience_ids": list(dict.fromkeys(filter(None, [
+                *[exp.get("id") for exp in used_exps],
+                *[m.get("experience_id") for m in market_weakness_lessons if m.get("experience_id")]
+            ]))),
+            "db5_market_segment_id": cust_insights.get("segment_id")
+        }
+
+        used_objects = {
+            "all_used_ids": all_used_ids,
+            "total_competitors_analyzed": len(all_competitors_processed),
+            "demographics": {
+                "id": demographics.get("id") or str(demographics.get("_id", "")),
+                "name": demographics.get("name", ""),
+                "ward_name": demographics.get("ward_name", ""),
+                "population_density": demographics.get("population_density", 0)
+            },
+            "competitors": [
+                {
+                    "id": str(c.get("_id", c.get("id", ""))),
+                    "name": c.get("name", ""),
+                    "business_model_id": c.get("business_model_id"),
+                    "product_ids": c.get("product_ids", []),
+                    "distance_m": c.get("distance_m"),
+                    "weakness": c.get("weakness", "")
+                }
+                for c in all_competitors_processed
+            ],
+            "market_segment": {
+                "id": cust_insights.get("segment_id"),
+                "time": cust_insights.get("time"),
+                "price": cust_insights.get("price"),
+                "behavior": cust_insights.get("behavior")
+            } if cust_insights.get("segment_id") else None,
+            "market_lessons": [
+                {
+                    "experience_id": m.get("experience_id"),
+                    "lesson": m.get("lesson"),
+                    "cosine_score": m.get("cosine_score")
+                }
+                for m in market_weakness_lessons
+                if m.get("experience_id")
+            ],
+            "tactical_problems": used_problems,
+            "tactical_experiences": used_exps
+        }
 
         return {
             "success": True,
@@ -451,18 +902,353 @@ def evaluate_business_feasibility(req: FeasibilityRequest):
                 "coordinates": [lng, lat]
             },
             "demographics": demographics,
-            "competitors_summary": {
+            "competitors_summary": None if is_red_alert else {
                 "total_nearby": len(competitors),
                 "list": competitors[:8]  # Trả về 8 đối thủ tiêu biểu
             },
-            "market_gaps": market_gaps,
-            "stress_test": stress_test,
-            "ai_report": ai_report
+            "market_analysis": None if is_red_alert else market_analysis,
+            "market_gaps": None if is_red_alert else market_analysis,          # Giữ alias cho frontend cũ
+            "stress_test": stress_test,              # Mảng kịch bản [normal, premium] chuẩn đặc tả
+            "tactical_playbook": None if is_red_alert else tactical_playbook,  # Top 4 vấn đề & Top 4 kinh nghiệm
+            "ai_report": ai_report,
+            "used_objects": used_objects,
+            "used_object_ids": all_used_ids
         }
 
     except Exception as e:
         logger.error(f"[!] Lỗi trong quá trình thẩm định: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Lỗi phân tích pipeline: {str(e)}")
+
+
+@app.post("/api/scanner/evaluate/stream")
+def evaluate_business_feasibility_stream(req: FeasibilityRequest):
+    """
+    GIAO DIỆN 1: MÁY QUÉT THẨM ĐỊNH Ý TƯỞNG (STREAMING 2 PHA)
+    - Pha 1: Trả về NGAY LẬP TỨC toàn bộ kết quả tính toán logic (Bản đồ, Dân cư DB1,
+      Đối thủ 1km DB2, Phân tích thị trường vi mô DB5, Thử tải sinh tồn Runway,
+      4 Vấn đề cốt tử DB3 & 4 Bài học DB4) cho Frontend hiển thị tức thì.
+    - Pha 2: Streaming từng chữ / token từ LLM Qwen3.5 4B qua Server-Sent Events (SSE)
+      để điền dần vào Bản Kế Hoạch Tác Chiến Chiến Lược.
+    """
+    try:
+        logger.info(f"[*] Bắt đầu thẩm định Streaming cho địa chỉ: {req.address} | Vốn: {req.budget:,.0f}đ")
+        
+        # Mắt xích 1: Geocoding & Dân cư (DB1)
+        lng, lat, display_addr = geocode_address(req.address)
+        demographics = spatial_engine.get_area_demographics(lng, lat)
+
+        # Mắt xích 1b: Quét Đối thủ trong 1km (DB2)
+        competitors = spatial_engine.get_competitors_within_radius(
+            lng, lat, radius_m=1000.0,
+            model_id=req.model_id,
+            product_ids=req.product_ids
+        )
+
+        # Mắt xích 2: Phân tích Thị trường Vi mô (DB2 x DB5 x DB4)
+        market_analysis = market_analyse_engine.analyse_market(
+            competitors=competitors,
+            model_id=req.model_id,
+            product_ids=req.product_ids,
+            demographics=demographics,
+            budget=req.budget
+        )
+
+        gap_cards = []
+        mw = market_analysis.get("market_weakness", {})
+        if isinstance(mw, dict) and mw.get("important_weakness"):
+            gap_cards.append({
+                "title": "Tử huyệt đối thủ lớn nhất",
+                "detail": mw["important_weakness"]
+            })
+        for nw in (mw.get("normal_weakness", []) if isinstance(mw, dict) else []):
+            gap_cards.append({
+                "title": "Điểm yếu hệ thống khu vực",
+                "detail": nw
+            })
+        for ag in market_analysis.get("against_weakness", []):
+            gap_cards.append({
+                "title": "Đòn đánh hóa giải đề xuất",
+                "detail": ag.get("lesson", "") if isinstance(ag, dict) else str(ag)
+            })
+        market_analysis["market_gaps"] = gap_cards
+
+        # Mắt xích 3: Bộ Thử tải Rủi ro & Đo Sức sống Vốn (Zero-Revenue Runway)
+        has_dual = market_analysis.get("has_dual_strategies", False)
+        stress_test = stress_test_engine.run_stress_test(
+            budget=req.budget,
+            monthly_rent=req.rent,
+            business_model_id=req.model_id,
+            product_ids=req.product_ids,
+            has_dual_strategies=has_dual
+        )
+
+        # Mắt xích 4: Sách lược Chiến thuật Đa dạng (DB3 x DB4 qua Tag 0 & Greedy Diversity Pruning)
+        tactical_playbook = tactical_playbook_engine.run_tactical_playbook(
+            model_id=req.model_id,
+            product_ids=req.product_ids
+        )
+
+        # Kiểm tra sức sống vốn (Runway)
+        runway_val = 0.0
+        if isinstance(stress_test, list) and len(stress_test) > 0:
+            runway_val = float(stress_test[0].get("month", stress_test[0].get("runway_months", 0.0)))
+        elif isinstance(stress_test, dict):
+            runway_val = float(stress_test.get("month", stress_test.get("runway_months", 0.0)))
+        is_red_alert = (runway_val <= 0.0)
+
+        # Thu thập ID & Object thực tế
+        all_competitors_processed = competitors if competitors else []
+        used_problems = (tactical_playbook.get("top_4_problems", []) if tactical_playbook else [])
+        used_exps = (tactical_playbook.get("top_4_experiences", []) if tactical_playbook else [])
+        market_weakness_lessons = (market_analysis.get("against_weakness", []) if market_analysis else [])
+        cust_insights = market_analysis.get("customer_insights", {}) if market_analysis else {}
+
+        all_competitor_ids = [str(c.get("_id", c.get("id", ""))) for c in all_competitors_processed if (c.get("_id") or c.get("id"))]
+
+        all_used_ids = {
+            "db1_demographics_id": demographics.get("id") or str(demographics.get("_id", "")),
+            "db2_competitor_ids": all_competitor_ids,
+            "db3_problem_ids": [p.get("id") for p in used_problems if p.get("id")],
+            "db4_experience_ids": list(dict.fromkeys(filter(None, [
+                *[exp.get("id") for exp in used_exps],
+                *[m.get("experience_id") for m in market_weakness_lessons if m.get("experience_id")]
+            ]))),
+            "db5_market_segment_id": cust_insights.get("segment_id")
+        }
+
+        used_objects = {
+            "all_used_ids": all_used_ids,
+            "total_competitors_analyzed": len(all_competitors_processed),
+            "demographics": {
+                "id": demographics.get("id") or str(demographics.get("_id", "")),
+                "name": demographics.get("name", ""),
+                "ward_name": demographics.get("ward_name", ""),
+                "population_density": demographics.get("population_density", 0)
+            },
+            "competitors": [
+                {
+                    "id": str(c.get("_id", c.get("id", ""))),
+                    "name": c.get("name", ""),
+                    "business_model_id": c.get("business_model_id"),
+                    "product_ids": c.get("product_ids", []),
+                    "distance_m": c.get("distance_m"),
+                    "weakness": c.get("weakness", "")
+                }
+                for c in all_competitors_processed
+            ],
+            "market_segment": {
+                "id": cust_insights.get("segment_id"),
+                "time": cust_insights.get("time"),
+                "price": cust_insights.get("price"),
+                "behavior": cust_insights.get("behavior")
+            } if cust_insights.get("segment_id") else None,
+            "market_lessons": [
+                {
+                    "experience_id": m.get("experience_id"),
+                    "lesson": m.get("lesson"),
+                    "cosine_score": m.get("cosine_score")
+                }
+                for m in market_weakness_lessons
+                if m.get("experience_id")
+            ],
+            "tactical_problems": used_problems,
+            "tactical_experiences": used_exps
+        }
+
+        model_name = tag_manager.get_tag_name(req.model_id)
+        product_names = [tag_manager.get_tag_name(pid) for pid in req.product_ids]
+        products_str = ", ".join(product_names)
+        rent_val = float(req.rent) if (req.rent is not None and req.rent >= 0) else float(DEFAULT_RENT_BY_MODEL.get(int(req.model_id), 10_000_000))
+
+        form_summary = {
+            "address": display_addr,
+            "model_name": model_name,
+            "model_id": req.model_id,
+            "products_str": products_str,
+            "product_ids": req.product_ids,
+            "budget": req.budget,
+            "rent": rent_val
+        }
+
+        # Dữ liệu logic gửi TRƯỚC ngay lập tức
+        logic_results_event = {
+            "type": "logic_results",
+            "data": {
+                "success": True,
+                "location_info": {
+                    "input_address": req.address,
+                    "recognized_area": display_addr,
+                    "coordinates": [lng, lat]
+                },
+                "demographics": demographics,
+                "competitors_summary": None if is_red_alert else {
+                    "total_nearby": len(competitors),
+                    "list": competitors[:8]
+                },
+                "market_analysis": None if is_red_alert else market_analysis,
+                "market_gaps": None if is_red_alert else market_analysis,
+                "stress_test": stress_test,
+                "tactical_playbook": None if is_red_alert else tactical_playbook,
+                "used_objects": used_objects,
+                "used_object_ids": all_used_ids,
+                "is_red_alert": is_red_alert,
+                "business_model": {
+                    "model_id": req.model_id,
+                    "model_name": model_name,
+                    "product_ids": req.product_ids,
+                    "products_str": products_str,
+                    "budget": req.budget,
+                    "rent": rent_val
+                }
+            }
+        }
+
+        def event_stream():
+            # Pha 1: Bắn ngay lập tức toàn bộ số liệu logic tính toán ra Frontend
+            yield f"data: {json.dumps(logic_results_event, ensure_ascii=False)}\n\n"
+
+            # Pha 2: Streaming từng chữ / token từ LLM Qwen3.5 4B qua Ollama
+            try:
+                for token in llm_copilot.stream_evaluate_feasibility(
+                    form_data=form_summary,
+                    demographics=demographics,
+                    competitors=competitors,
+                    market_gaps=market_analysis,
+                    stress_test=stress_test,
+                    tactical_playbook=tactical_playbook
+                ):
+                    yield f"data: {json.dumps({'type': 'chunk', 'text': token}, ensure_ascii=False)}\n\n"
+            except Exception as stream_err:
+                logger.error(f"[!] Lỗi stream LLM evaluate: {stream_err}")
+                yield f"data: {json.dumps({'type': 'chunk', 'text': f'\\n\\n[!] Lỗi sinh báo cáo AI: {str(stream_err)}'}, ensure_ascii=False)}\n\n"
+
+            # Kết thúc dòng SSE
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[!] Lỗi trong quá trình thẩm định stream: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Lỗi phân tích pipeline: {str(e)}")
+
+
+def _format_copilot_context_and_insights(
+    competitors: List[Dict[str, Any]],
+    problems: List[Dict[str, Any]],
+    experiences: List[Dict[str, Any]],
+    market_segments: List[Dict[str, Any]]
+) -> Tuple[str, Dict[str, int]]:
+    """
+    Chắt lọc và định dạng dữ liệu trực tiếp theo nhu cầu từng nhánh,
+    không phụ thuộc vào distillation engine cũ.
+    """
+    lines = []
+
+    # 1. Đối thủ cạnh tranh DB2 (nếu có)
+    if competitors:
+        lines.append("### ĐỐI THỦ CẠNH TRANH THỰC TẾ TRONG BÁN KÍNH 1KM (DB2):")
+        for c in competitors[:5]:
+            name = c.get("name", "Quán lân cận")
+            dist = round(c.get("distance_m", 0))
+            price = c.get("price_range", "Chưa rõ")
+            weakness = c.get("weakness", "Chưa có thông tin")
+            lines.append(f"- Quán '{name}' (Cách {dist}m, Giá: {price}) => Điểm yếu: \"{weakness}\"")
+        lines.append("")
+
+    # 2. Sự cố & Rủi ro DB3
+    if problems:
+        lines.append("### DỮ LIỆU SỰ CỐ & RỦI RO THỰC TẾ LIÊN QUAN (DB3):")
+        sev_map = {3: "HIGH", 2: "MEDIUM", 1: "LOW", "3": "HIGH", "2": "MEDIUM", "1": "LOW"}
+        seen_p_titles = set()
+        for p in problems:
+            title = p.get("title", "").strip()
+            title_key = title.lower()
+            if title_key in seen_p_titles:
+                continue
+            seen_p_titles.add(title_key)
+            summary = p.get("summary", "")
+            if len(summary) > 140:
+                summary = summary[:140].strip() + "..."
+            sev_label = sev_map.get(p.get("severity", 2), "MEDIUM")
+            lines.append(f"- [{sev_label}] {title}: {summary}")
+        lines.append("")
+
+    # 3. Bài học kinh nghiệm & Lời thoại DB4
+    if experiences:
+        lines.append("### BÀI HỌC KINH NGHIỆM ĐÃ KIỂM CHỨNG & LỜI THOẠI ĐÀM PHÁN (DB4):")
+        seen_exp_titles = set()
+        for exp in experiences:
+            title = exp.get("title", "").strip()
+            title_key = title.lower()
+            if title_key in seen_exp_titles:
+                continue
+            seen_exp_titles.add(title_key)
+            takeaway = exp.get("key_takeaway") or exp.get("story", "")
+            if len(takeaway) > 160:
+                takeaway = takeaway[:160].strip() + "..."
+            dialogue = exp.get("dialogue_script", "").strip()
+            script_part = f" => Lời thoại mẫu: \"{dialogue}\"" if dialogue else ""
+            lines.append(f"- {title}: {takeaway}{script_part}")
+        lines.append("")
+
+    # 4. Hành vi & Sức mua khách hàng DB5
+    if market_segments:
+        lines.append("### HÀNH VI & SỨC MUA KHÁCH HÀNG (DB5):")
+        for m in market_segments:
+            behavior = m.get("demand") or m.get("behavior_notes", "")
+            if len(behavior) > 140:
+                behavior = behavior[:140].strip() + "..."
+            segment_name = m.get("segment")
+            if not segment_name:
+                for tid in m.get("tag_ids", []):
+                    if 301 <= tid <= 304:
+                        segment_name = tag_manager.get_tag_name(tid)
+                        break
+            if not segment_name:
+                segment_name = "Khách hàng mục tiêu"
+
+            budget_str = m.get("price_tolerance")
+            if not budget_str:
+                pr = m.get("price_range")
+                if isinstance(pr, dict) and "min" in pr and "max" in pr:
+                    budget_str = f"{pr['min']:,}đ - {pr['max']:,}đ"
+                else:
+                    budget_str = "Chưa rõ"
+
+            peak_str = m.get("peak_traffic")
+            if not peak_str:
+                ph = m.get("peak_hours")
+                if isinstance(ph, list) and ph:
+                    peak_str = ", ".join(
+                        f"{p.get('start', '')} - {p.get('end', '')}"
+                        for p in ph if isinstance(p, dict) and p.get("start")
+                    )
+                else:
+                    peak_str = "Chưa rõ"
+
+            lines.append(f"- Tệp {segment_name} (Túi tiền: {budget_str}, Giờ cao điểm: {peak_str}): {behavior}")
+        lines.append("")
+
+    context_md = "\n".join(lines).strip()
+    if not context_md:
+        context_md = "- Không có dữ liệu đặc thù bổ sung."
+
+    matched_insights = {
+        "problems_found": len(problems),
+        "lessons_found": len(experiences),
+        "market_found": len(market_segments),
+        "competitors_found": len(competitors)
+    }
+
+    return context_md, matched_insights
 
 
 @app.post("/api/copilot/chat")
@@ -512,13 +1298,162 @@ def copilot_chat(req: CopilotChatRequest, authorization: Optional[str] = Header(
             except Exception as geo_err:
                 logger.warning(f"Lỗi geocoding địa chỉ copilot: {geo_err}")
 
-        # Mắt xích Định tuyến Ý định (Agentic Intent Router)
+        # Mắt xích Định tuyến Ý định (Agentic Intent Router - 5 Nhánh BGE-M3)
         intent_info = detect_copilot_intent(query_text)
         intent = intent_info.get("intent", "INTERNAL")
+        model_name = tag_manager.get_tag_name(model_id) if model_id else "Chung các mô hình"
+        if product_ids:
+            prod_names = [tag_manager.get_tag_name(pid) for pid in product_ids if tag_manager.get_tag_name(pid)]
+            if prod_names:
+                model_name = f"{model_name} (Sản phẩm: {', '.join(prod_names)})"
+
+        branch_id = intent_info.get("branch", "BRANCH_B")
+        submodule_info = None
+        branch_4_info = None
+        branch_5_info = None
+
+        if branch_id == "BRANCH_C":
+            from .pipeline.branch_strategic import detect_branch_3_submodules, calculate_deterministic_math
+            submodule_info = detect_branch_3_submodules(query_text, top_k=2)
+            profile_data = saved_strategy.get("profile", {}) if saved_strategy else {}
+            monthly_logs_data = saved_strategy.get("monthly_logs", []) if saved_strategy else []
+            sim_profile_data = saved_strategy.get("simulation_profile", {}) if saved_strategy else {}
+            math_calc = calculate_deterministic_math(
+                submodule_info["primary_module"],
+                profile_data,
+                monthly_logs_data,
+                sim_profile_data
+            )
+            submodule_info["math_result"] = math_calc
+
+        elif branch_id == "BRANCH_D":
+            from .pipeline.branch_competitive import evaluate_branch_4_competitive
+            profile_data = saved_strategy.get("profile", {}) if saved_strategy else {}
+            monthly_logs_data = saved_strategy.get("monthly_logs", []) if saved_strategy else []
+            sim_profile_data = saved_strategy.get("simulation_profile", {}) if saved_strategy else {}
+
+            competitors_b4 = []
+            try:
+                competitors_b4 = spatial_engine.get_competitors_within_radius(
+                    lng=lng,
+                    lat=lat,
+                    radius_m=1000.0,
+                    model_id=model_id,
+                    product_ids=product_ids
+                )
+            except Exception as comp_err:
+                logger.warning(f"[!] Lỗi quét đối thủ cho Nhánh 4: {comp_err}")
+
+            branch_4_info = evaluate_branch_4_competitive(
+                query=query_text,
+                profile=profile_data,
+                monthly_logs=monthly_logs_data,
+                competitors=competitors_b4,
+                simulation_profile=sim_profile_data,
+                model_id=model_id,
+                top_k=3
+            )
+
+        elif branch_id == "BRANCH_E":
+            from .pipeline.branch_diagnostic import diagnose_business_issues
+            branch_5_info = diagnose_business_issues(
+                query=query_text,
+                model_id=model_id,
+                top_limit=3
+            )
+
+        # Nếu đang ở chế độ kiểm thử Phần I (Router Only)
+        if req.mode == "part_1":
+            ai_resp_lines = [
+                f"### {intent_info.get('badge_title')}",
+                "",
+                f"• **Nhánh BGE xác định:** `{intent_info.get('branch')}` — **{intent_info.get('branch_name')}** ({intent_info.get('english_name')})",
+                f"• **Độ tương đồng Cosine:** `{intent_info.get('confidence', 0):.4f}` (Cơ chế: `{intent_info.get('matched_by')}`)",
+                f"• **Nguồn dữ liệu BẮT BUỘC:** `{', '.join(intent_info.get('data_sources', []))}`",
+                f"• **Nguồn dữ liệu BỎ QUA:** `{', '.join(intent_info.get('skip_sources', [])) if intent_info.get('skip_sources') else 'Không'}`"
+            ]
+
+            if submodule_info:
+                ai_resp_lines.extend([
+                    "",
+                    "---",
+                    f"### {submodule_info.get('badge_title')}",
+                    f"• **Module con chiến lược:** `{submodule_info.get('primary_module')}` — **{submodule_info.get('name')}**",
+                    f"• **Độ tương đồng Module:** `{submodule_info.get('confidence', 0):.4f}`",
+                    f"• **Mô tả chuyên sâu:** {submodule_info.get('badge_detail')}",
+                    f"• **Số liệu tính toán mẫu (Deterministic Math):** `{json.dumps(submodule_info.get('math_result', {}), ensure_ascii=False)}`"
+                ])
+
+            if branch_4_info:
+                primary_id = branch_4_info.get('primary_module')
+                ai_resp_lines.extend([
+                    "",
+                    "---",
+                    f"### 🛡️ CHIẾN LƯỢC PHẢN CÔNG CẠNH TRANH VI MÔ (NHÁNH 4)",
+                    f"• **Module dẫn đầu:** `{primary_id}` — **{branch_4_info.get('primary_name')}**",
+                    f"• **Định dạng giải thuật:** Chấm điểm 6 Module đồng thời (35% Intent + 65% Feasibility) → Chọn Top 3",
+                    "",
+                    "• **🏆 TOP 3 CHIẾN LƯỢC TÁC CHIẾN ĐƯỢC CHỌN:**"
+                ])
+                for rank_item in branch_4_info.get("detailed_rankings", [])[:3]:
+                    ai_resp_lines.append(
+                        f"  {rank_item['rank']}. {rank_item['badge_title']} → **{rank_item['total_score']}đ** "
+                        f"(Ý định: {rank_item['intent_score']}đ | Khả thi: {rank_item['feasibility_score']}đ)"
+                    )
+
+            if branch_5_info:
+                ai_resp_lines.extend([
+                    "",
+                    "---",
+                    f"### 🩺 BÁO CÁO CHẨN ĐOÁN & KỊCH BẢN KHẢ NGHI (NHÁNH 5 - DIAGNOSTIC TRIAGE)",
+                    f"• **Bệnh lý nghi vấn số 1:** `{branch_5_info.get('primary_tag')}` — **{branch_5_info.get('primary_name')}**",
+                    f"• **Điểm tương đồng triệu chứng:** `{branch_5_info.get('scores', {}).get(branch_5_info.get('primary_tag'), 0)}đ`",
+                    f"• **Các kịch bản khả nghi đã khoanh vùng:** `{', '.join(branch_5_info.get('suspected_tags', []))}`",
+                    "",
+                    "• **📋 KỊCH BẢN & CHECKLIST TỰ KIỂM TRA TẠI QUÁN TRONG 24H:**"
+                ])
+                for sc in branch_5_info.get("scenarios", []):
+                    ai_resp_lines.extend([
+                        f"\n**🔍 Kịch bản {sc['rank']}: {sc['scenario_title']}**",
+                        f"  - *Dấu hiệu:* {sc['symptom_description']}",
+                        f"  - *Lỗ rò rỉ tiềm ẩn:* {sc['potential_leak']}"
+                    ])
+                    for st in sc["checklist"]:
+                        ai_resp_lines.append(f"  - [ ] **Bước {st['step_num']} ({st['title']}):** {st['action']}")
+
+            ai_resp_lines.extend([
+                "",
+                "*(Hệ thống đã định tuyến và chẩn đoán chính xác theo tiêu chí Phần I, Nhánh 3, Nhánh 4 & Nhánh 5)*"
+            ])
+
+            return {
+                "success": True,
+                "query": query_text,
+                "model_name": model_name,
+                "intent": intent,
+                "branch": branch_id,
+                "branch_name": intent_info.get("branch_name", ""),
+                "english_name": intent_info.get("english_name", ""),
+                "intent_badge": intent_info.get("badge_title", ""),
+                "intent_detail": intent_info.get("badge_detail", ""),
+                "data_sources": intent_info.get("data_sources", []),
+                "skip_sources": intent_info.get("skip_sources", []),
+                "confidence": intent_info.get("confidence", 0.0),
+                "scores": intent_info.get("scores", {}),
+                "matched_by": intent_info.get("matched_by", "vector_bge"),
+                "matched_patterns": intent_info.get("matched_patterns", []),
+                "router_info": intent_info,
+                "submodule_info": submodule_info,
+                "branch_4_info": branch_4_info,
+                "branch_5_info": branch_5_info,
+                "ai_response": "\n".join(ai_resp_lines)
+            }
+
+        # Quét đúng các CSDL theo yêu cầu của nhánh (loại bỏ distillation trung gian)
+        data_sources = intent_info.get("data_sources") or (["DB2", "DB5", "DB4"] if intent == "COMPETITIVE" else ["DB3", "DB4"])
 
         competitors = []
-        if intent == "COMPETITIVE":
-            # Quét DB2: Đối thủ trong bán kính 1km
+        if "DB2" in data_sources or intent == "COMPETITIVE":
             try:
                 competitors = spatial_engine.get_competitors_within_radius(
                     lng=lng,
@@ -531,33 +1466,48 @@ def copilot_chat(req: CopilotChatRequest, authorization: Optional[str] = Header(
                 logger.warning(f"[!] Lỗi quét đối thủ DB2: {comp_err}")
                 competitors = []
 
-            # Quét đồng thời cả DB3, DB4, DB5 có lọc phân cấp
-            raw_search = semantic_search_engine.hybrid_search_all(
-                query=query_text,
-                model_id=model_id,
-                product_ids=product_ids
+        problems = []
+        if "DB3" in data_sources:
+            problems = semantic_search_engine.search_collection(
+                "problems", query=query_text, top_k=3, tag_filter=model_id, product_ids=product_ids
             )
 
-            # Chắt lọc đồng thời DB2 + DB3 + DB4 + DB5
-            distilled = distillation_engine.distill_records(raw_search, competitors=competitors)
-            context_md = distillation_engine.build_llm_context(distilled, intent="COMPETITIVE")
-        else:
-            # Nhánh Nội bộ: Quét DB3, DB4 có lọc phân cấp
-            raw_search = semantic_search_engine.hybrid_search_all(
-                query=query_text,
-                model_id=model_id,
-                product_ids=product_ids
+        experiences = []
+        if "DB4" in data_sources:
+            experiences = semantic_search_engine.search_collection(
+                "experiences", query=query_text, top_k=3, tag_filter=model_id, product_ids=product_ids
             )
-            distilled = distillation_engine.distill_records(raw_search)
-            context_md = distillation_engine.build_llm_context(distilled, intent="INTERNAL")
 
-        # Mắt xích 6: LLM Reasoning (kèm lịch sử đa lượt)
-        model_name = tag_manager.get_tag_name(model_id) if model_id else "Chung các mô hình"
+        market_segments = []
+        if "DB5" in data_sources:
+            market_segments = semantic_search_engine.search_market_segments(
+                product_ids=product_ids, tag_filter=model_id, top_k=2
+            )
+
+        context_md, matched_insights = _format_copilot_context_and_insights(
+            competitors=competitors,
+            problems=problems,
+            experiences=experiences,
+            market_segments=market_segments
+        )
+
+        # Bổ sung dữ liệu nhánh chuyên sâu vào context LLM
+        if submodule_info and submodule_info.get("math_result"):
+            context_md += f"\n\n### ĐÁNH GIÁ TOÁN HỌC TẤT ĐỊNH (WHAT-IF):\n{json.dumps(submodule_info['math_result'], ensure_ascii=False, indent=2)}"
+        if branch_4_info and branch_4_info.get("detailed_rankings"):
+            top3_txt = "\n".join([f"- Hạng {r.get('rank', idx+1)}: {r.get('badge_title', r.get('name', ''))} ({r.get('total_score', 0)}đ): {r.get('badge_detail', r.get('detail', ''))}" for idx, r in enumerate(branch_4_info["detailed_rankings"][:3])])
+            context_md += f"\n\n### TOP 3 CHIẾN LƯỢC TÁC CHIẾN ĐỀ XUẤT:\n{top3_txt}"
+        if branch_5_info and branch_5_info.get("scenarios"):
+            sc_txt = "\n".join([f"- Kịch bản {s.get('rank', idx+1)} ({s.get('scenario_title', '')}): {s.get('symptom_description', '')} | Lỗ rò rỉ: {s.get('potential_leak', '')}" for idx, s in enumerate(branch_5_info["scenarios"])])
+            context_md += f"\n\n### KỊCH BẢN CHẨN ĐOÁN KHẢ NGHI:\n{sc_txt}"
+
+        # Mắt xích 6: LLM Reasoning (kèm lịch sử đa lượt theo 5 nhánh chuyên biệt)
         ai_advice = llm_copilot.answer_tactical_copilot(
             user_query=query_text,
             model_name=model_name,
             context_markdown=context_md,
             intent=intent,
+            branch=branch_id,
             conversation_history=req.conversation_history
         )
 
@@ -566,17 +1516,23 @@ def copilot_chat(req: CopilotChatRequest, authorization: Optional[str] = Header(
             "query": query_text,
             "model_name": model_name,
             "intent": intent,
+            "branch": intent_info.get("branch", "BRANCH_B"),
+            "branch_name": intent_info.get("branch_name", ""),
+            "english_name": intent_info.get("english_name", ""),
             "intent_badge": intent_info.get("badge_title", "⚙️ Chế độ: Tối ưu Vận hành Nội bộ"),
             "intent_detail": intent_info.get("badge_detail", ""),
             "data_sources": intent_info.get("data_sources", ["DB3", "DB4"]),
+            "skip_sources": intent_info.get("skip_sources", []),
+            "confidence": intent_info.get("confidence", 0.0),
+            "scores": intent_info.get("scores", {}),
+            "matched_by": intent_info.get("matched_by", "vector_bge"),
+            "router_info": intent_info,
             "competitors_count": len(competitors),
-            "matched_insights": {
-                "problems_found": len(distilled.get("problems", [])),
-                "lessons_found": len(distilled.get("lessons", [])),
-                "market_found": len(distilled.get("market", [])),
-                "competitors_found": len(distilled.get("competitors", []))
-            },
+            "matched_insights": matched_insights,
             "distilled_context": context_md,
+            "submodule_info": submodule_info,
+            "branch_4_info": branch_4_info,
+            "branch_5_info": branch_5_info,
             "ai_response": ai_advice
         }
 
@@ -628,9 +1584,66 @@ def copilot_chat_stream(req: CopilotChatRequest, authorization: Optional[str] = 
         # Mắt xích Định tuyến Ý định (Agentic Intent Router)
         intent_info = detect_copilot_intent(query_text)
         intent = intent_info.get("intent", "INTERNAL")
+        branch_id = intent_info.get("branch", "BRANCH_B")
+        submodule_info = None
+        branch_4_info = None
+        branch_5_info = None
+
+        if branch_id == "BRANCH_C":
+            from .pipeline.branch_strategic import detect_branch_3_submodules, calculate_deterministic_math
+            submodule_info = detect_branch_3_submodules(query_text, top_k=2)
+            profile_data = saved_strategy.get("profile", {}) if saved_strategy else {}
+            monthly_logs_data = saved_strategy.get("monthly_logs", []) if saved_strategy else []
+            sim_profile_data = saved_strategy.get("simulation_profile", {}) if saved_strategy else {}
+            math_calc = calculate_deterministic_math(
+                submodule_info["primary_module"],
+                profile_data,
+                monthly_logs_data,
+                sim_profile_data
+            )
+            submodule_info["math_result"] = math_calc
+
+        elif branch_id == "BRANCH_D":
+            from .pipeline.branch_competitive import evaluate_branch_4_competitive
+            profile_data = saved_strategy.get("profile", {}) if saved_strategy else {}
+            monthly_logs_data = saved_strategy.get("monthly_logs", []) if saved_strategy else []
+            sim_profile_data = saved_strategy.get("simulation_profile", {}) if saved_strategy else {}
+
+            competitors_b4 = []
+            try:
+                competitors_b4 = spatial_engine.get_competitors_within_radius(
+                    lng=lng,
+                    lat=lat,
+                    radius_m=1000.0,
+                    model_id=model_id,
+                    product_ids=product_ids
+                )
+            except Exception as comp_err:
+                logger.warning(f"[!] Lỗi quét đối thủ cho Nhánh 4 stream: {comp_err}")
+
+            branch_4_info = evaluate_branch_4_competitive(
+                query=query_text,
+                profile=profile_data,
+                monthly_logs=monthly_logs_data,
+                competitors=competitors_b4,
+                simulation_profile=sim_profile_data,
+                model_id=model_id,
+                top_k=3
+            )
+
+        elif branch_id == "BRANCH_E":
+            from .pipeline.branch_diagnostic import diagnose_business_issues
+            branch_5_info = diagnose_business_issues(
+                query=query_text,
+                model_id=model_id,
+                top_limit=3
+            )
+
+        # Quét đúng các CSDL theo yêu cầu của nhánh (loại bỏ distillation trung gian)
+        data_sources = intent_info.get("data_sources") or (["DB2", "DB5", "DB4"] if intent == "COMPETITIVE" else ["DB3", "DB4"])
 
         competitors = []
-        if intent == "COMPETITIVE":
+        if "DB2" in data_sources or intent == "COMPETITIVE":
             try:
                 competitors = spatial_engine.get_competitors_within_radius(
                     lng=lng,
@@ -643,50 +1656,79 @@ def copilot_chat_stream(req: CopilotChatRequest, authorization: Optional[str] = 
                 logger.warning(f"[!] Lỗi quét đối thủ DB2: {comp_err}")
                 competitors = []
 
-            raw_search = semantic_search_engine.hybrid_search_all(
-                query=query_text,
-                model_id=model_id,
-                product_ids=product_ids
+        problems = []
+        if "DB3" in data_sources:
+            problems = semantic_search_engine.search_collection(
+                "problems", query=query_text, top_k=3, tag_filter=model_id, product_ids=product_ids
             )
-            distilled = distillation_engine.distill_records(raw_search, competitors=competitors)
-            context_md = distillation_engine.build_llm_context(distilled, intent="COMPETITIVE")
-        else:
-            raw_search = semantic_search_engine.hybrid_search_all(
-                query=query_text,
-                model_id=model_id,
-                product_ids=product_ids
+
+        experiences = []
+        if "DB4" in data_sources:
+            experiences = semantic_search_engine.search_collection(
+                "experiences", query=query_text, top_k=3, tag_filter=model_id, product_ids=product_ids
             )
-            distilled = distillation_engine.distill_records(raw_search)
-            context_md = distillation_engine.build_llm_context(distilled, intent="INTERNAL")
+
+        market_segments = []
+        if "DB5" in data_sources:
+            market_segments = semantic_search_engine.search_market_segments(
+                product_ids=product_ids, tag_filter=model_id, top_k=2
+            )
+
+        context_md, matched_insights = _format_copilot_context_and_insights(
+            competitors=competitors,
+            problems=problems,
+            experiences=experiences,
+            market_segments=market_segments
+        )
+
+        # Bổ sung dữ liệu nhánh chuyên sâu vào context LLM
+        if submodule_info and submodule_info.get("math_result"):
+            context_md += f"\n\n### ĐÁNH GIÁ TOÁN HỌC TẤT ĐỊNH (WHAT-IF):\n{json.dumps(submodule_info['math_result'], ensure_ascii=False, indent=2)}"
+        if branch_4_info and branch_4_info.get("detailed_rankings"):
+            top3_txt = "\n".join([f"- Hạng {r.get('rank', idx+1)}: {r.get('badge_title', r.get('name', ''))} ({r.get('total_score', 0)}đ): {r.get('badge_detail', r.get('detail', ''))}" for idx, r in enumerate(branch_4_info["detailed_rankings"][:3])])
+            context_md += f"\n\n### TOP 3 CHIẾN LƯỢC TÁC CHIẾN ĐỀ XUẤT:\n{top3_txt}"
+        if branch_5_info and branch_5_info.get("scenarios"):
+            sc_txt = "\n".join([f"- Kịch bản {s.get('rank', idx+1)} ({s.get('scenario_title', '')}): {s.get('symptom_description', '')} | Lỗ rò rỉ: {s.get('potential_leak', '')}" for idx, s in enumerate(branch_5_info["scenarios"])])
+            context_md += f"\n\n### KỊCH BẢN CHẨN ĐOÁN KHẢ NGHI:\n{sc_txt}"
 
         model_name = tag_manager.get_tag_name(model_id) if model_id else "Chung các mô hình"
+        if product_ids:
+            prod_names = [tag_manager.get_tag_name(pid) for pid in product_ids if tag_manager.get_tag_name(pid)]
+            if prod_names:
+                model_name = f"{model_name} (Sản phẩm: {', '.join(prod_names)})"
 
         def sse_event_stream():
-            # 1. Gửi event metadata đầu tiên chứa các thông tin trạng thái
+            # 1. Gửi event metadata đầu tiên chứa các thông tin trạng thái & 5 nhánh
             meta_event = {
                 "type": "metadata",
                 "query": query_text,
                 "model_name": model_name,
                 "intent": intent,
+                "branch": branch_id,
+                "branch_name": intent_info.get("branch_name", ""),
+                "english_name": intent_info.get("english_name", ""),
                 "intent_badge": intent_info.get("badge_title", "⚙️ Chế độ: Tối ưu Vận hành Nội bộ"),
                 "intent_detail": intent_info.get("badge_detail", ""),
                 "data_sources": intent_info.get("data_sources", ["DB3", "DB4"]),
+                "skip_sources": intent_info.get("skip_sources", []),
+                "confidence": intent_info.get("confidence", 0.0),
+                "scores": intent_info.get("scores", {}),
+                "matched_by": intent_info.get("matched_by", "vector_bge"),
                 "competitors_count": len(competitors),
-                "matched_insights": {
-                    "problems_found": len(distilled.get("problems", [])),
-                    "lessons_found": len(distilled.get("lessons", [])),
-                    "market_found": len(distilled.get("market", [])),
-                    "competitors_found": len(distilled.get("competitors", []))
-                }
+                "matched_insights": matched_insights,
+                "submodule_info": submodule_info,
+                "branch_4_info": branch_4_info,
+                "branch_5_info": branch_5_info
             }
             yield f"data: {json.dumps(meta_event, ensure_ascii=False)}\n\n"
 
-            # 2. Streaming từng token từ LLM Qwen3.5 4B qua Ollama
+            # 2. Streaming từng token từ LLM Qwen3.5 4B qua Ollama theo 5 nhánh chuyên biệt
             for token in llm_copilot.stream_tactical_copilot(
                 user_query=query_text,
                 model_name=model_name,
                 context_markdown=context_md,
                 intent=intent,
+                branch=branch_id,
                 conversation_history=req.conversation_history
             ):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': token}, ensure_ascii=False)}\n\n"
@@ -743,4 +1785,4 @@ if __name__ == "__main__":
     print(f"👉 API Docs (Swagger UI): http://localhost:{PORT}/docs")
     print(f"👉 CSDL: MongoDB Atlas (5 collections) | LLM: {LLM_MODEL}")
     print("=" * 70 + "\n")
-    uvicorn.run("client_app.backend.main:app", host=HOST, port=PORT, reload=False)
+    uvicorn.run(app, host=HOST, port=PORT)

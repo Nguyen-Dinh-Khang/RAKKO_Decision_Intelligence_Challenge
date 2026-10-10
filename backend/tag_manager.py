@@ -30,7 +30,7 @@ class TagManager:
             if TAG_MAP_PATH.exists():
                 with open(TAG_MAP_PATH, "r", encoding="utf-8") as f:
                     self.tag_data = json.load(f)
-                    self.id_to_tag = self.tag_data.get("id_to_tag", {})
+                    self.id_to_tag = self.tag_data.get("id_to_name") or self.tag_data.get("id_to_tag", {})
                 logger.info(f"[✓] Đã nạp danh mục tag chuẩn hóa ({len(self.id_to_tag)} tags).")
             else:
                 logger.warning(f"[!] Không tìm thấy file: {TAG_MAP_PATH}")

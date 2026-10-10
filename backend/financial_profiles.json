@@ -1,0 +1,209 @@
+{
+  "version": "1.1.0",
+  "description": "Hồ sơ định phí động & Kinh tế vi mô mức chuẩn bình dân (Normal Scenario) cho 10 Mô hình kinh doanh và 20 Nhóm sản phẩm (MLAI Platform)",
+  "business_model_profiles": {
+    "101": {
+      "capex_ratio": 0.45,
+      "min_capex": 35000000,
+      "max_capex": 90000000,
+      "staff_salary_per_person": 6000000,
+      "staff_count": 2,
+      "utilities_cost": 3000000,
+      "utilities_note": "Gas nấu, điện chiếu sáng, tủ mát bảo quản"
+    },
+    "102": {
+      "capex_ratio": 0.50,
+      "min_capex": 45000000,
+      "max_capex": 160000000,
+      "staff_salary_per_person": 6000000,
+      "staff_count": 2,
+      "utilities_cost": 4500000,
+      "utilities_note": "Máy lạnh, máy làm đá, máy pha cà phê"
+    },
+    "103": {
+      "capex_ratio": 0.55,
+      "min_capex": 65000000,
+      "max_capex": 220000000,
+      "staff_salary_per_person": 6500000,
+      "staff_count": 3,
+      "utilities_cost": 5500000,
+      "utilities_note": "Bếp công nghiệp, bẫy mỡ, tủ đông mát trữ thực phẩm"
+    },
+    "104": {
+      "capex_ratio": 0.50,
+      "min_capex": 75000000,
+      "max_capex": 250000000,
+      "staff_salary_per_person": 5500000,
+      "staff_count": 4,
+      "utilities_cost": 5000000,
+      "utilities_note": "Hút mùi, quạt công nghiệp, trữ bia và tủ mát"
+    },
+    "105": {
+      "deposit_months": 1,
+      "capex_ratio": 0.35,
+      "min_capex": 18000000,
+      "max_capex": 45000000,
+      "staff_salary_per_person": 6000000,
+      "staff_count": 1,
+      "utilities_cost": 1200000,
+      "utilities_note": "Điện tủ mát mini, máy dập nắp ly, sạc thiết bị"
+    },
+    "106": {
+      "capex_ratio": 0.35,
+      "min_capex": 25000000,
+      "max_capex": 80000000,
+      "staff_salary_per_person": 6000000,
+      "staff_count": 1,
+      "utilities_cost": 2500000,
+      "utilities_note": "Tủ kem, tủ mát nước ngọt, đèn chiếu sáng"
+    },
+    "107": {
+      "capex_ratio": 0.45,
+      "min_capex": 35000000,
+      "max_capex": 120000000,
+      "staff_salary_per_person": 6000000,
+      "staff_count": 1,
+      "utilities_cost": 2500000,
+      "utilities_note": "Đèn rọi sản phẩm, máy lạnh quầy thu ngân"
+    },
+    "108": {
+      "capex_ratio": 0.55,
+      "min_capex": 55000000,
+      "max_capex": 180000000,
+      "staff_salary_per_person": 8000000,
+      "staff_count": 2,
+      "utilities_cost": 3500000,
+      "utilities_note": "Nồi hấp khăn, máy sấy, máy chăm sóc da, điều hòa"
+    },
+    "109": {
+      "capex_ratio": 0.60,
+      "min_capex": 85000000,
+      "max_capex": 220000000,
+      "staff_salary_per_person": 6000000,
+      "staff_count": 1,
+      "utilities_cost": 7000000,
+      "utilities_note": "Điện 3 pha sấy công nghiệp, nước sinh hoạt và nước giặt xả"
+    },
+    "110": {
+      "capex_ratio": 0.50,
+      "min_capex": 80000000,
+      "max_capex": 280000000,
+      "staff_salary_per_person": 6000000,
+      "staff_count": 3,
+      "utilities_cost": 6500000,
+      "utilities_note": "Dàn tủ đông tủ mát hoạt động 24/7, biển hộp đèn lớn"
+    }
+  },
+  "product_economics_profiles": {
+    "201": {
+      "gross_margin": 0.72,
+      "aov": 32000,
+      "margin_note": "Biên lãi gộp cao (70-75%), giá vốn nguyên liệu trà/cafe sữa thấp"
+    },
+    "202": {
+      "gross_margin": 0.48,
+      "aov": 42000,
+      "margin_note": "Biên lãi gộp trung bình (45-50%), giá vốn thịt/rau tươi chiếm tỷ trọng cao"
+    },
+    "203": {
+      "gross_margin": 0.50,
+      "aov": 45000,
+      "margin_note": "Biên lãi gộp 50%, phụ thuộc vào chi phí xương hầm, thịt bò/gà và gas"
+    },
+    "204": {
+      "gross_margin": 0.55,
+      "aov": 25000,
+      "margin_note": "Biên lãi gộp 55%, quay vòng vốn nhanh, xuất đơn tốc độ cao"
+    },
+    "205": {
+      "gross_margin": 0.58,
+      "aov": 30000,
+      "margin_note": "Biên lãi gộp 58%, đồ đông lạnh chiên rán bảo quản được lâu"
+    },
+    "206": {
+      "gross_margin": 0.46,
+      "aov": 160000,
+      "margin_note": "Biên lãi gộp 46%, giá trị giỏ hàng AOV lớn, ăn theo nhóm"
+    },
+    "207": {
+      "gross_margin": 0.30,
+      "aov": 90000,
+      "margin_note": "Biên lãi gộp 30%, chịu hao hụt và rủi ro hết hạn trong ngày"
+    },
+    "208": {
+      "gross_margin": 0.22,
+      "aov": 65000,
+      "margin_note": "Biên lãi gộp mỏng (20-25%), bù lại tần suất mua lặp lại cao"
+    },
+    "209": {
+      "gross_margin": 0.60,
+      "aov": 180000,
+      "margin_note": "Biên lãi gộp 60%, chịu rủi ro tồn kho và lỗi mốt"
+    },
+    "210": {
+      "gross_margin": 0.58,
+      "aov": 150000,
+      "margin_note": "Biên lãi gộp 58%, AOV khá cao"
+    },
+    "211": {
+      "gross_margin": 0.55,
+      "aov": 140000,
+      "margin_note": "Biên lãi gộp 55%, khách hàng trung thành cao"
+    },
+    "212": {
+      "gross_margin": 0.78,
+      "aov": 80000,
+      "margin_note": "Biên lãi gộp 78%, chi phí nguyên liệu hóa chất thấp, chủ yếu là tiền công"
+    },
+    "213": {
+      "gross_margin": 0.75,
+      "aov": 200000,
+      "margin_note": "Biên lãi gộp 75%, dịch vụ trải nghiệm cá nhân"
+    },
+    "214": {
+      "gross_margin": 0.80,
+      "aov": 110000,
+      "margin_note": "Biên lãi gộp 80%, vốn hóa chất thấp, biên lợi nhuận cao"
+    },
+    "215": {
+      "gross_margin": 0.35,
+      "aov": 95000,
+      "margin_note": "Biên lãi gộp 35%, cần chứng chỉ hành nghề và bảo quản chuẩn GPP"
+    },
+    "216": {
+      "gross_margin": 0.62,
+      "aov": 70000,
+      "margin_note": "Biên lãi gộp 62%, hàng nhập giá gốc rẻ, dễ bán kèm"
+    },
+    "217": {
+      "gross_margin": 0.32,
+      "aov": 120000,
+      "margin_note": "Biên lãi gộp 32%, chiếm nhiều diện tích trưng bày"
+    },
+    "218": {
+      "gross_margin": 0.50,
+      "aov": 40000,
+      "margin_note": "Biên lãi gộp 50%, bảo quản dễ, ít rủi ro hư hỏng"
+    },
+    "219": {
+      "gross_margin": 0.70,
+      "aov": 45000,
+      "margin_note": "Biên lãi gộp 70%, tiền xà phòng xả vải chiếm tỷ trọng nhỏ"
+    },
+    "220": {
+      "gross_margin": 0.65,
+      "aov": 85000,
+      "margin_note": "Biên lãi gộp 65%, kết hợp bán phụ tùng và công sửa"
+    }
+  },
+  "stress_test_benchmarks": {
+    "crisis_revenue_ratio": 0.60,
+    "safe_runway_months": 6.0,
+    "warning_runway_months": 3.5,
+    "rent_to_budget_ratio_max": 0.08,
+    "rent_to_breakeven_ratio_max": 0.22,
+    "cross_sell_addon_ratio": 0.35,
+    "primary_product_margin_weight": 0.60,
+    "secondary_product_margin_weight": 0.40
+  }
+}

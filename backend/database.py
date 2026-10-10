@@ -24,23 +24,41 @@ _mongo_db: Optional[Database] = None
 def get_db() -> Database:
     """
     Lấy đối tượng kết nối Database MongoDB.
-    Nếu chưa kết nối thì tự động khởi tạo kết nối (Singleton pattern).
+    Nếu chưa kết nối thì tự động khởi tạo kết nối (Singleton pattern) với cơ chế tự động thử lại.
     """
     global _mongo_client, _mongo_db
     if _mongo_db is not None:
         return _mongo_db
 
-    try:
-        logger.info(f"[*] Đang kết nối tới MongoDB: {DB_NAME}...")
-        _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=8000)
-        # Thử ping để đảm bảo kết nối hoạt động bình thường
-        _mongo_client.admin.command('ping')
-        _mongo_db = _mongo_client[DB_NAME]
-        logger.info("[✓] Kết nối MongoDB THÀNH CÔNG!")
-        return _mongo_db
-    except Exception as e:
-        logger.error(f"[!] Lỗi kết nối MongoDB: {e}")
-        raise ConnectionError(f"Không thể kết nối tới cơ sở dữ liệu MongoDB: {e}")
+    import time
+    max_retries = 3
+    last_err = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"[*] Đang kết nối tới MongoDB: {DB_NAME} (Lần thử {attempt}/{max_retries})...")
+            client = MongoClient(
+                MONGO_URI,
+                serverSelectionTimeoutMS=12000,
+                connectTimeoutMS=10000,
+                socketTimeoutMS=20000,
+                retryWrites=True,
+                readPreference="primaryPreferred"
+            )
+            # Thử ping để đảm bảo kết nối hoạt động bình thường
+            client.admin.command('ping')
+            _mongo_client = client
+            _mongo_db = _mongo_client[DB_NAME]
+            logger.info("[✓] Kết nối MongoDB THÀNH CÔNG!")
+            return _mongo_db
+        except Exception as e:
+            last_err = e
+            logger.warning(f"[!] Lỗi kết nối MongoDB lần {attempt}: {e}")
+            if attempt < max_retries:
+                time.sleep(1.5)
+
+    logger.error(f"[!] Tất cả các lần thử kết nối MongoDB thất bại: {last_err}")
+    raise ConnectionError(f"Không thể kết nối tới cơ sở dữ liệu MongoDB: {last_err}")
 
 
 def check_mongo_health() -> Dict[str, Any]:

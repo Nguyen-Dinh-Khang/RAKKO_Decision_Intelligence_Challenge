@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Compass, MessageSquareText, Activity, ShieldCheck, Cpu, User, LogIn, LogOut, X, Lock, KeyRound, Sparkles } from 'lucide-react';
+import { Compass, MessageSquareText, Store, User, LogIn, LogOut, X, Lock } from 'lucide-react';
 
 /**
  * Navbar - Thanh điều hướng chính của Nền tảng Ra quyết định
@@ -59,33 +59,28 @@ export default function Navbar({ activeTab, setActiveTab, systemStatus, currentU
     <>
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex items-center justify-between h-16 gap-4">
             
-            {/* Logo & Tên nền tảng */}
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
-                <Compass className="w-6 h-6" />
+            {/* Logo & Tên nền tảng tinh gọn */}
+            <div className="flex items-center space-x-2.5 shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-sm flex-shrink-0">
+                <Compass className="w-5 h-5" />
               </div>
               <div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
-                    DECISION CO-PILOT
-                  </span>
-                  <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                    Dual-Engine v3.0
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 font-medium hidden sm:block">
-                  Nền tảng Ra quyết định & Trợ lý Kinh doanh Thực chiến
+                <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-900 block leading-tight">
+                  DECISION CO-PILOT
+                </span>
+                <p className="text-[11px] text-slate-500 font-medium hidden sm:block leading-none mt-0.5">
+                  Trợ lý Ra quyết định Kinh doanh
                 </p>
               </div>
             </div>
 
             {/* Tab Navigation Switcher */}
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
               <button
                 onClick={() => setActiveTab('scanner')}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-150 ${
+                className={`flex items-center space-x-2 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-150 ${
                   activeTab === 'scanner'
                     ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -98,7 +93,7 @@ export default function Navbar({ activeTab, setActiveTab, systemStatus, currentU
 
               <button
                 onClick={() => setActiveTab('copilot')}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-150 ${
+                className={`flex items-center space-x-2 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-150 ${
                   activeTab === 'copilot'
                     ? 'bg-white text-indigo-600 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -108,26 +103,25 @@ export default function Navbar({ activeTab, setActiveTab, systemStatus, currentU
                 <span>2. Trợ Lý Chiến Thuật</span>
                 <span className="hidden md:inline text-[10px] text-slate-400 font-normal">(Day 1 - 365)</span>
               </button>
+
+              <button
+                onClick={() => setActiveTab('profile')}
+                className={`flex items-center space-x-2 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-150 ${
+                  activeTab === 'profile'
+                    ? 'bg-white text-emerald-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Store className="w-4 h-4" />
+                <span>3. Hồ Sơ & Sổ Sách</span>
+                <span className="hidden md:inline text-[10px] text-slate-400 font-normal">(Quản trị)</span>
+              </button>
             </div>
 
-            {/* User Account & System Status Badges */}
-            <div className="flex items-center space-x-3 text-xs">
-              
-              {/* System Badges (Ẩn trên màn hình nhỏ) */}
-              <div className="hidden xl:flex items-center space-x-2">
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="font-medium">MongoDB (5 DBs)</span>
-                </div>
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700">
-                  <Cpu className="w-3.5 h-3.5" />
-                  <span className="font-medium">Qwen3.5 & BGE-M3</span>
-                </div>
-              </div>
-
-              {/* Tài khoản Người dùng */}
+            {/* Tài khoản Người dùng */}
+            <div className="flex items-center space-x-2 text-xs shrink-0">
               {currentUser ? (
-                <div className="flex items-center space-x-2 pl-3 border-l border-slate-200">
+                <div className="flex items-center space-x-2">
                   <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-xs">
                     <User className="w-3.5 h-3.5 text-blue-600" />
                     <span className="max-w-[120px] truncate">{currentUser.full_name || currentUser.username}</span>
@@ -141,20 +135,17 @@ export default function Navbar({ activeTab, setActiveTab, systemStatus, currentU
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center pl-3 border-l border-slate-200">
-                  <button
-                    onClick={() => {
-                      setAuthError(null);
-                      setShowAuthModal(true);
-                    }}
-                    className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs shadow-sm shadow-blue-500/20 transition active:scale-[0.98]"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Đăng nhập / Đăng ký</span>
-                  </button>
-                </div>
+                <button
+                  onClick={() => {
+                    setAuthError(null);
+                    setShowAuthModal(true);
+                  }}
+                  className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs shadow-sm shadow-blue-500/20 transition active:scale-[0.98]"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Đăng nhập / Đăng ký</span>
+                </button>
               )}
-
             </div>
 
           </div>

@@ -284,21 +284,28 @@ class SpatialEngine:
             logger.error(f"[!] Lỗi truy vấn $geoNear trên competitors: {e}")
             matched_comps = []
 
-        # Nếu lọc theo ID trong bán kính radius_m có ít đối thủ (< 3),
-        # mở rộng quét thêm đối thủ quanh khu vực qua $geoNear không lọc ID để hệ thống luôn có dữ liệu
+        # Nếu lọc theo ID trong bán kính ban đầu có ít đối thủ (< 3),
+        # mở rộng bán kính lên tối đa 3000m - 5000m NHƯNG VẪN BẮT BUỘC GIỮ NGUYÊN BỘ LỌC NGÀNH NGHỀ/SẢN PHẨM.
+        # Tuyệt đối KHÔNG bỏ bộ lọc ngành để tránh hiển thị quán ăn/uống thành đối thủ của tiệm thời trang/bán lẻ.
         if len(matched_comps) < 3:
-            logger.info("[*] Số lượng đối thủ lọc theo ID < 3, quét mở rộng đối thủ quanh bán kính...")
+            logger.info("[*] Số lượng đối thủ cùng ngành < 3, mở rộng bán kính tìm kiếm cùng ngành...")
             try:
+                expanded_radius = max(radius_m * 3.0, 3000.0)
+                expanded_geo_stage: Dict[str, Any] = {
+                    "near": {"type": "Point", "coordinates": [lng, lat]},
+                    "distanceField": "distance_m",
+                    "spherical": True,
+                    "maxDistance": expanded_radius,
+                    "key": "location"
+                }
+                if id_conditions:
+                    if len(id_conditions) == 1:
+                        expanded_geo_stage["query"] = id_conditions[0]
+                    else:
+                        expanded_geo_stage["query"] = {"$or": id_conditions}
+
                 fallback_pipeline = [
-                    {
-                        "$geoNear": {
-                            "near": {"type": "Point", "coordinates": [lng, lat]},
-                            "distanceField": "distance_m",
-                            "spherical": True,
-                            "maxDistance": radius_m,
-                            "key": "location"
-                        }
-                    },
+                    {"$geoNear": expanded_geo_stage},
                     {"$limit": 10}
                 ]
                 broader_comps = list(competitors_coll.aggregate(fallback_pipeline))
@@ -308,7 +315,7 @@ class SpatialEngine:
                         matched_comps.append(c)
                         seen_ids.add(str(c["_id"]))
             except Exception as e:
-                logger.warning(f"Lỗi fallback quét đối thủ qua $geoNear: {e}")
+                logger.warning(f"Lỗi mở rộng bán kính tìm đối thủ qua $geoNear: {e}")
 
         # Lấy toàn bộ thông tin của mỗi object từ database, không lược bỏ thông tin nào
         results = []

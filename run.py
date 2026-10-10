@@ -15,10 +15,13 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# Thêm client_app vào sys.path để import dễ dàng
+# Thêm client_app và thư mục cha MLAI vào sys.path để import dễ dàng
 CURRENT_DIR = Path(__file__).resolve().parent
+PARENT_DIR = CURRENT_DIR.parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
+if str(PARENT_DIR) not in sys.path:
+    sys.path.insert(0, str(PARENT_DIR))
 
 import uvicorn
 from backend.config import PORT, HOST, LLM_MODEL

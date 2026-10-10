@@ -1,837 +1,808 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
-  MessageSquare, Send, Store, Sparkles, AlertCircle, 
-  CheckSquare, Copy, Check, Clock, TrendingUp, HelpCircle, 
-  BookmarkCheck, MapPin, Edit3, RotateCcw, Utensils, ShieldAlert,
-  Share2, PanelLeftClose, PanelLeft, Plus, Bot, User
+  Bot, Sparkles, Send, Store, PanelLeftClose, PanelLeft, 
+  HelpCircle, CheckCircle2, XCircle, ArrowRight, ArrowDown, Layers, 
+  ShieldAlert, Cpu, RefreshCw, User, DollarSign, Users, Calendar,
+  TrendingUp, MapPin, Tag, ShieldCheck
 } from 'lucide-react';
 import FormattedMarkdown from './FormattedMarkdown';
 
 /**
  * TacticalCopilot - Giao diện 2: Trợ lý Chiến thuật Đồng hành (Day 1 - 365)
- * Thiết kế giao diện chuẩn phong cách ChatGPT:
- * - Cột bên trái: Toàn bộ thông tin cấu hình quán, hồ sơ, và danh mục kịch bản mẫu.
- * - Phần còn lại bên phải: Khung chat cố định toàn màn hình.
- * - Ô nhập liệu cố định ở dưới cùng (Sticky bottom).
+ * Cố vấn tác chiến, giải quyết sự cố, cạnh tranh và chẩn đoán hiệu quả kinh doanh
  */
 export default function TacticalCopilot({ metadata, currentUser, savedStrategy }) {
-  // 1. Quản lý thông tin ngữ cảnh quán
-  const [modelId, setModelId] = useState(105); // Mặc định Kiosk / Xe đẩy
-  const [address, setAddress] = useState('');
-  const [selectedProductIds, setSelectedProductIds] = useState([204, 201]); // Bánh mì & Cà phê
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-
-  // 2. Chat state & UI controls
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [copiedId, setCopiedId] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
+  const [chatInput, setChatInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const userScrolledUpRef = useRef(false);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
-  // Tự động cuộn xuống tin nhắn mới nhất
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Lấy thông tin cơ bản từ kế sách quán đã lưu & Profile người dùng
+  const modelName = savedStrategy?.model_name || savedStrategy?.business_model_name || 'Chưa thiết lập mô hình';
+  const address = savedStrategy?.address || 'Cổng ĐH Bách Khoa, Tô Hiến Thành, Q10';
+  const productNames = savedStrategy?.product_names?.join(', ') || 'Chưa thiết lập món';
 
-  // Đồng bộ thông tin từ hồ sơ quán đã lưu
-  useEffect(() => {
-    if (savedStrategy) {
-      if (savedStrategy.model_id) setModelId(savedStrategy.model_id);
-      if (savedStrategy.address) setAddress(savedStrategy.address);
-      if (savedStrategy.product_ids && savedStrategy.product_ids.length > 0) {
-        setSelectedProductIds(savedStrategy.product_ids);
-      }
-      setIsEditingProfile(false);
-    } else {
-      if (metadata?.suggested_locations && metadata.suggested_locations.length > 0 && !address) {
-        setAddress(metadata.suggested_locations[0]);
-      }
-      setIsEditingProfile(true);
+  const profile = savedStrategy?.profile || {};
+  const simulationProfile = savedStrategy?.simulation_profile || {};
+  const monthlyLogs = savedStrategy?.monthly_logs || [];
+  const latestLog = monthlyLogs.length > 0 ? monthlyLogs[monthlyLogs.length - 1] : null;
+
+  // Tên hiển thị các phân khúc khách hàng
+  const displaySegments = (() => {
+    const rawNames = profile.customer_segments || savedStrategy?.customer_segments;
+    if (Array.isArray(rawNames) && rawNames.length > 0) return rawNames.join(', ');
+    const rawIds = profile.customer_segment_ids || savedStrategy?.customer_segment_ids || [];
+    if (Array.isArray(rawIds) && rawIds.length > 0) {
+      return rawIds.map(id => {
+        const found = metadata?.customer_segments?.find(s => s.id === id);
+        return found ? found.name : `Nhóm ${id}`;
+      }).join(', ');
     }
-  }, [savedStrategy, metadata]);
+    return 'Chưa xác định';
+  })();
 
-  const [chatHistory, setChatHistory] = useState([
+  // Danh mục 5 kịch bản gợi ý đại diện cho 5 nhánh tư duy từ Mục 1.2
+  const samplePrompts = [
+    { 
+      tag: "Nhóm A", 
+      branchId: "BRANCH_A",
+      title: "Hỏi Kinh nghiệm Thuần túy", 
+      text: "Cho tôi một số kinh nghiệm chọn thịt bò tươi buổi sáng" 
+    },
+    { 
+      tag: "Nhóm B", 
+      branchId: "BRANCH_B",
+      title: "Gỡ rối Sự cố Nội bộ", 
+      text: "Khách than đợi bánh mì lâu quá bỏ đi" 
+    },
+    { 
+      tag: "Nhóm C", 
+      branchId: "BRANCH_C",
+      title: "Giả định Chiến lược (What-If)", 
+      text: "Nếu tôi hạ giá 15% thì sao?" 
+    },
+    { 
+      tag: "Nhóm D", 
+      branchId: "BRANCH_D",
+      title: "Phản công Cạnh tranh Vi mô", 
+      text: "Quán đối diện đông quá, làm sao kéo khách họ sang?" 
+    },
+    { 
+      tag: "Nhóm E", 
+      branchId: "BRANCH_E",
+      title: "Chẩn đoán Bệnh kinh doanh", 
+      text: "Dạo này doanh thu vẫn vậy mà cuối tháng không thấy tiền dư đâu cả?" 
+    }
+  ];
+
+  // Khởi tạo tin nhắn chào ban đầu
+  const [messages, setMessages] = useState([
     {
-      id: 1,
-      sender: 'ai',
-      text: `Xin chào! Tôi là Trợ lý Cố vấn Kinh doanh thực chiến F&B. 
-Bạn đang gặp sự cố hay khúc mắc gì trong quá trình bán hàng (vắng khách, chủ nhà tăng giá, nhân sự nghỉ việc, khách than đợi lâu, đối thủ sát vách phá giá...)? 
-Hãy gõ câu hỏi cụ thể, hệ thống sẽ tự động định tuyến và truyền tải phản hồi thời gian thực:
-- **Nếu là sự cố cạnh tranh vi mô**: Tự động quét đối thủ 1km và lôi cả 4 CSDL (DB2, DB3, DB4, DB5) để ra kịch bản phản công.
-- **Nếu là sự cố vận hành nội bộ**: Kích hoạt DB3 & DB4 để đưa ra checklist quy trình và lời thoại mẫu trong 24h.`,
-      intent: 'INTERNAL',
-      intentBadge: '⚙️ Chế độ: Tối ưu Vận hành Nội bộ',
-      dataSources: ['DB3', 'DB4'],
+      id: 'welcome',
+      sender: 'bot',
+      isWelcome: true,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [chatHistory, loading]);
+  // Cuộn xuống tin nhắn mới nhất
+  const scrollToBottom = (behavior = 'auto') => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: behavior
+      });
+    }
+    userScrolledUpRef.current = false;
+    setShowScrollBottomBtn(false);
+  };
 
-  // Tạo cuộc trò chuyện mới
-  const handleNewChat = () => {
-    setChatHistory([
+  // Lắng nghe sự kiện cuộn của user: nếu user chủ động cuộn lên trên để đọc thì dừng auto-scroll
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    // Nếu người dùng lướt lên cách đáy > 100px, ghi nhận để KHÔNG tự động giật xuống
+    if (distanceFromBottom > 100) {
+      userScrolledUpRef.current = true;
+      setShowScrollBottomBtn(true);
+    } else {
+      userScrolledUpRef.current = false;
+      setShowScrollBottomBtn(false);
+    }
+  };
+
+  useEffect(() => {
+    // Chỉ cuộn xuống đáy nếu người dùng KHÔNG chủ động cuộn lên trên để đọc
+    if (!userScrolledUpRef.current && chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  // Cấu hình giao diện màu sắc cho 5 nhánh
+  const getBranchStyle = (branchId) => {
+    switch (branchId) {
+      case 'BRANCH_A':
+        return {
+          bg: 'bg-amber-50',
+          border: 'border-amber-200',
+          text: 'text-amber-800',
+          badge: 'bg-amber-100 text-amber-800 border-amber-300',
+          barColor: 'bg-amber-500',
+          dot: 'bg-amber-500'
+        };
+      case 'BRANCH_B':
+        return {
+          bg: 'bg-rose-50',
+          border: 'border-rose-200',
+          text: 'text-rose-800',
+          badge: 'bg-rose-100 text-rose-800 border-rose-300',
+          barColor: 'bg-rose-500',
+          dot: 'bg-rose-500'
+        };
+      case 'BRANCH_C':
+        return {
+          bg: 'bg-blue-50',
+          border: 'border-blue-200',
+          text: 'text-blue-800',
+          badge: 'bg-blue-100 text-blue-800 border-blue-300',
+          barColor: 'bg-blue-500',
+          dot: 'bg-blue-500'
+        };
+      case 'BRANCH_D':
+        return {
+          bg: 'bg-purple-50',
+          border: 'border-purple-200',
+          text: 'text-purple-800',
+          badge: 'bg-purple-100 text-purple-800 border-purple-300',
+          barColor: 'bg-purple-500',
+          dot: 'bg-purple-500'
+        };
+      case 'BRANCH_E':
+        return {
+          bg: 'bg-emerald-50',
+          border: 'border-emerald-200',
+          text: 'text-emerald-800',
+          badge: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+          barColor: 'bg-emerald-500',
+          dot: 'bg-emerald-500'
+        };
+      default:
+        return {
+          bg: 'bg-slate-50',
+          border: 'border-slate-200',
+          text: 'text-slate-800',
+          badge: 'bg-slate-100 text-slate-800 border-slate-300',
+          barColor: 'bg-indigo-500',
+          dot: 'bg-indigo-500'
+        };
+    }
+  };
+
+  // Gửi prompt sang backend để kích hoạt Bộ định tuyến BGE & Streaming LLM
+  const handleSendMessage = async (textToSend) => {
+    const query = (textToSend || chatInput).trim();
+    if (!query || isLoading) return;
+
+    const userMsgId = Date.now().toString();
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // 1. Thêm tin nhắn của User vào danh sách
+    setMessages((prev) => [
+      ...prev,
       {
-        id: Date.now(),
-        sender: 'ai',
-        text: `Xin chào! Tôi là Trợ lý Cố vấn Kinh doanh thực chiến F&B. 
-Bạn đang gặp sự cố hay khúc mắc gì trong quá trình bán hàng (vắng khách, chủ nhà tăng giá, nhân sự nghỉ việc, khách than đợi lâu, đối thủ sát vách phá giá...)? 
-Hãy gõ câu hỏi cụ thể, hệ thống sẽ tự động định tuyến và truyền tải phản hồi thời gian thực:
-- **Nếu là sự cố cạnh tranh vi mô**: Tự động quét đối thủ 1km và lôi cả 4 CSDL (DB2, DB3, DB4, DB5) để ra kịch bản phản công.
-- **Nếu là sự cố vận hành nội bộ**: Kích hoạt DB3 & DB4 để đưa ra checklist quy trình và lời thoại mẫu trong 24h.`,
-        intent: 'INTERNAL',
-        intentBadge: '⚙️ Chế độ: Tối ưu Vận hành Nội bộ',
-        dataSources: ['DB3', 'DB4'],
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        id: userMsgId,
+        sender: 'user',
+        text: query,
+        timestamp: nowTime
       }
     ]);
-    setQuery('');
-  };
 
-  // Danh sách các tình huống sự cố thực tế phổ biến
-  const quickCrises = [
-    {
-      title: "🎯 Đối thủ sát vách phá giá 20%",
-      type: "competitive",
-      query: "Có quán mới mở sát vách bán món giống hệt quán tôi nhưng giá rẻ hơn 20% và tặng kèm trà đá. Khách quen của tôi bị hút qua đó khá nhiều, tôi phải đối phó thế nào mà không cần giảm giá?"
-    },
-    {
-      title: "🎯 Kéo khách từ quán đối diện",
-      type: "competitive",
-      query: "Quán ăn đối diện rất đông khách vào khung giờ trưa và tối. Tôi nên làm combo gì hoặc tạo điểm nhấn nào để thu hút khách của họ sang quán mình?"
-    },
-    {
-      title: "⚙️ Khách chê đợi lâu bỏ đi",
-      type: "internal",
-      query: "Quán tôi mở được 2 tuần cạnh trường Đại học. Mấy hôm nay khách than đợi lâu quá nên bỏ đi sang quán khác. Tôi chỉ có 2 người làm, làm sao để phục vụ nhanh hơn mà không cần thuê thêm người?"
-    },
-    {
-      title: "⚙️ Chủ nhà đòi tăng giá thuê 30%",
-      type: "internal",
-      query: "Quán mới bán được 6 tháng vừa có lượng khách quen ổn định thì chủ nhà thông báo tăng tiền thuê thêm 30% vào tháng tới. Tôi nên đàm phán thế nào để giữ giá cũ hoặc không bị mất cọc?"
-    }
-  ];
+    setChatInput('');
+    setIsLoading(true);
+    userScrolledUpRef.current = false;
+    setShowScrollBottomBtn(false);
+    setTimeout(() => {
+      scrollToBottom('smooth');
+    }, 50);
 
-  // Toggle chọn sản phẩm
-  const toggleProduct = (pid) => {
-    if (selectedProductIds.includes(pid)) {
-      if (selectedProductIds.length > 1) {
-        setSelectedProductIds(selectedProductIds.filter(id => id !== pid));
+    const botMsgId = (Date.now() + 1).toString();
+    // Tạo sẵn bubble của Bot với trạng thái isStreaming = true
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: botMsgId,
+        sender: 'bot',
+        routerData: null,
+        answer: '',
+        isStreaming: true,
+        timestamp: nowTime
       }
-    } else {
-      if (selectedProductIds.length < 3) {
-        setSelectedProductIds([...selectedProductIds, pid]);
-      }
-    }
-  };
-
-  // Gửi câu hỏi sự cố tới FastAPI hỗ trợ Streaming SSE và Multi-turn Memory
-  const handleSend = async (customQuery = null) => {
-    const textToSend = customQuery || query;
-    if (!textToSend.trim() || loading) return;
-
-    const userMessage = {
-      id: Date.now(),
-      sender: 'user',
-      text: textToSend.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    // Chuẩn bị lịch sử hội thoại gần nhất (Multi-turn Context)
-    const conversationHistory = chatHistory
-      .filter(m => m.id !== 1 && m.text && !m.isStreaming)
-      .slice(-4)
-      .map(m => ({
-        role: m.sender === 'user' ? 'user' : 'assistant',
-        content: m.text
-      }));
-
-    const aiMsgId = Date.now() + 1;
-    const initialAiMessage = {
-      id: aiMsgId,
-      sender: 'ai',
-      text: '',
-      intent: 'INTERNAL',
-      intentBadge: '⚙️ Đang phân tích ý định...',
-      intentDetail: '',
-      dataSources: ['DB3', 'DB4'],
-      competitorsCount: 0,
-      matched: null,
-      isStreaming: true,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    setChatHistory((prev) => [...prev, userMessage, initialAiMessage]);
-    setQuery('');
-    setLoading(true);
-
-    const token = localStorage.getItem('mlai_user_token');
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const payload = {
-      query: textToSend.trim(),
-      model_id: parseInt(modelId),
-      address: address,
-      product_ids: selectedProductIds,
-      conversation_history: conversationHistory
-    };
+    ]);
 
     try {
-      const response = await fetch('/api/copilot/chat/stream', {
+      const token = localStorage.getItem('mlai_user_token');
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      // Xây dựng lịch sử hội thoại gần nhất (tối đa 6 lượt)
+      const convHistory = messages
+        .filter((m) => !m.isWelcome && !m.isError)
+        .map((m) => ({
+          role: m.sender === 'user' ? 'user' : 'assistant',
+          content: m.sender === 'user' ? m.text : (m.answer || m.routerData?.query || '')
+        }))
+        .filter((m) => m.content)
+        .slice(-6);
+
+      // Gọi API sang FastAPI Backend qua kênh SSE Streaming
+      const res = await fetch('/api/copilot/chat/stream', {
         method: 'POST',
         headers,
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          query,
+          model_id: savedStrategy?.model_id || 105,
+          address: savedStrategy?.address || address,
+          coordinates: savedStrategy?.coordinates,
+          product_ids: savedStrategy?.product_ids || [],
+          conversation_history: convHistory
+        })
       });
 
-      if (!response.ok) {
-        throw new Error(`Mã lỗi máy chủ: ${response.status}`);
+      if (!res.ok) {
+        let errMessage = `Mã lỗi máy chủ: ${res.status}`;
+        try {
+          const errData = await res.json();
+          errMessage = errData.detail || errMessage;
+        } catch {
+          // ignore
+        }
+        throw new Error(errMessage);
       }
 
-      const reader = response.body.getReader();
+      if (!res.body) {
+        throw new Error('Trình duyệt không hỗ trợ đọc luồng dữ liệu SSE (ReadableStream)');
+      }
+
+      const reader = res.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
 
       while (true) {
-        const { value, done } = await reader.read();
+        const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        buffer = lines.pop();
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (trimmed.startsWith('data: ')) {
-            const jsonStr = trimmed.slice(6);
-            try {
-              const eventData = JSON.parse(jsonStr);
+          if (!trimmed.startsWith('data:')) continue;
+          const jsonStr = trimmed.slice(5).trim();
+          if (!jsonStr) continue;
 
-              if (eventData.type === 'metadata') {
-                setChatHistory((prev) =>
-                  prev.map((msg) =>
-                    msg.id === aiMsgId
-                      ? {
-                          ...msg,
-                          intent: eventData.intent,
-                          intentBadge: eventData.intent_badge,
-                          intentDetail: eventData.intent_detail,
-                          dataSources: eventData.data_sources || [],
-                          competitorsCount: eventData.competitors_count || 0,
-                          matched: eventData.matched_insights
-                        }
-                      : msg
-                  )
-                );
-              } else if (eventData.type === 'chunk') {
-                const tokenText = eventData.text || '';
-                setChatHistory((prev) =>
-                  prev.map((msg) =>
-                    msg.id === aiMsgId
-                      ? {
-                          ...msg,
-                          text: msg.text + tokenText
-                        }
-                      : msg
-                  )
-                );
-              } else if (eventData.type === 'done') {
-                setChatHistory((prev) =>
-                  prev.map((msg) =>
-                    msg.id === aiMsgId
-                      ? {
-                          ...msg,
-                          isStreaming: false
-                        }
-                      : msg
-                  )
-                );
-              }
-            } catch (parseErr) {
-              console.warn('Lỗi phân tích cú pháp SSE:', parseErr, jsonStr);
+          try {
+            const parsed = JSON.parse(jsonStr);
+
+            if (parsed.type === 'metadata') {
+              // PHA 1: NHẬN NGAY LẬP TỨC METADATA ĐỊNH TUYẾN 5 NHÁNH
+              setIsLoading(false);
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === botMsgId
+                    ? { ...m, routerData: parsed, isStreaming: true }
+                    : m
+                )
+              );
+            } else if (parsed.type === 'chunk') {
+              // PHA 2: STREAMING TỪNG TỪ CỦA LLM QWEN3.5
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === botMsgId
+                    ? { ...m, answer: (m.answer || '') + (parsed.text || ''), isStreaming: true }
+                    : m
+                )
+              );
+            } else if (parsed.type === 'done') {
+              // HOÀN TẤT STREAM
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === botMsgId
+                    ? { ...m, isStreaming: false }
+                    : m
+                )
+              );
             }
+          } catch (parseErr) {
+            console.warn('Lỗi phân tích SSE packet trong Copilot:', parseErr, jsonStr);
           }
         }
       }
     } catch (err) {
-      console.warn('[SSE] Thử fallback về endpoint đồng bộ /api/copilot/chat do:', err);
-      try {
-        const fallbackRes = await fetch('/api/copilot/chat', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload)
-        });
-
-        if (fallbackRes.ok) {
-          const fallbackData = await fallbackRes.json();
-          setChatHistory((prev) =>
-            prev.map((msg) =>
-              msg.id === aiMsgId
-                ? {
-                    ...msg,
-                    text: fallbackData.ai_response,
-                    intent: fallbackData.intent,
-                    intentBadge: fallbackData.intent_badge,
-                    intentDetail: fallbackData.intent_detail,
-                    dataSources: fallbackData.data_sources || [],
-                    competitorsCount: fallbackData.competitors_count || 0,
-                    matched: fallbackData.matched_insights,
-                    isStreaming: false
-                  }
-                : msg
-            )
-          );
-        } else {
-          throw new Error('Fallback cũng không thành công');
-        }
-      } catch (fallbackErr) {
-        setChatHistory((prev) =>
-          prev.map((msg) =>
-            msg.id === aiMsgId
-              ? {
-                  ...msg,
-                  text: `⚠️ Rất tiếc, đã có lỗi kết nối tới máy chủ suy luận: ${err.message}. Vui lòng thử lại.`,
-                  isStreaming: false
-                }
-              : msg
-          )
-        );
-      }
+      console.error('Lỗi khi streaming Copilot:', err);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === botMsgId
+            ? {
+                ...m,
+                isError: true,
+                isStreaming: false,
+                errorText: `Không thể kết nối đến trợ lý AI: ${err.message}`
+              }
+            : m
+        )
+      );
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  // Nhấn Enter để gửi (Shift+Enter để xuống dòng)
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSendMessage();
     }
-  };
-
-  // Copy nội dung phản hồi hoặc lời thoại
-  const handleCopy = (id, text, isZalo = false) => {
-    let copyText = text;
-    if (isZalo) {
-      copyText = `[KỊCH BẢN THỰC CHIẾN TỪ CỐ VẤN F&B]\n\n${text}\n\n(MLAI Tactical Co-pilot)`;
-    }
-    navigator.clipboard.writeText(copyText);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const getModelName = (id) => {
-    const found = metadata?.business_models?.find(m => m.id === parseInt(id));
-    return found ? found.name : `Mô hình ${id}`;
-  };
-
-  const getProductNames = () => {
-    if (!metadata?.products) return '';
-    return selectedProductIds
-      .map(id => metadata.products.find(p => p.id === id)?.name || id)
-      .join(', ');
   };
 
   return (
-    <div className="flex h-full w-full bg-slate-100 overflow-hidden relative font-sans">
+    <div className="flex h-full w-full bg-slate-100 overflow-hidden relative font-sans text-slate-800">
       
       {/* ========================================================================= */}
-      {/* CỘT BÊN TRÁI (LEFT SIDEBAR): TOÀN BỘ THÔNG TIN NHẬP & KỊCH BẢN            */}
+      {/* 1. CỘT BÊN TRÁI: NGỮ CẢNH QUÁN & TÌNH HUỐNG MẪU 5 NHÁNH                  */}
       {/* ========================================================================= */}
       <aside 
         className={`${
-          isSidebarOpen ? 'translate-x-0 w-80 lg:w-[350px]' : '-translate-x-full w-0 md:w-0'
-        } fixed md:relative z-30 inset-y-0 left-0 bg-white border-r border-slate-200/90 flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 shadow-lg md:shadow-none overflow-hidden`}
+          isSidebarOpen ? 'translate-x-0 w-80 lg:w-[330px]' : '-translate-x-full w-0 md:w-0'
+        } fixed md:relative z-30 inset-y-0 left-0 bg-white border-r border-slate-200 flex flex-col h-full transition-all duration-300 ease-in-out shrink-0 shadow-lg md:shadow-none overflow-hidden`}
       >
-        {/* 1. Header Sidebar: Nút tạo Cuộc trò chuyện mới & đóng sidebar trên mobile */}
-        <div className="p-3.5 border-b border-slate-200/80 flex items-center justify-between gap-2 shrink-0 bg-slate-50/60">
-          <button
-            type="button"
-            onClick={handleNewChat}
-            className="flex-1 flex items-center justify-center space-x-2 py-2 px-3 bg-white hover:bg-indigo-50/60 text-slate-700 hover:text-indigo-700 border border-slate-200 hover:border-indigo-300 font-semibold text-xs rounded-xl transition shadow-xs cursor-pointer"
-            title="Tạo cuộc hội thoại mới"
-          >
-            <Plus className="w-4 h-4 text-indigo-600" />
-            <span>Cuộc trò chuyện mới</span>
-          </button>
+        {/* Header Sidebar */}
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0 bg-slate-50">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm">
+              <User className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-bold text-xs sm:text-sm text-slate-900 leading-tight">
+                Hồ Sơ Chủ Quán
+              </h3>
+              <p className="text-[10px] text-slate-500">
+                Ngữ cảnh thực tế đồng hành
+              </p>
+            </div>
+          </div>
 
-          {/* Nút đóng Sidebar trên màn hình di động */}
           <button
             type="button"
             onClick={() => setIsSidebarOpen(false)}
-            className="md:hidden p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-            title="Thu gọn"
+            className="md:hidden p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
           >
             <PanelLeftClose className="w-4 h-4" />
           </button>
         </div>
 
-        {/* 2. Thân Sidebar: Cuộn độc lập (Khuôn thông tin quán + Kịch bản mẫu + Hệ thống) */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-slate-600">
+        {/* Nội dung Sidebar: Profile User */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3.5 text-xs">
           
-          {/* KHỐI 1: KHUÔN THÔNG TIN QUÁN CỦA BẠN */}
-          <div className="bg-slate-50/90 rounded-2xl border border-slate-200/90 p-3.5 space-y-3 shadow-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200/70">
-              <div className="flex items-center space-x-1.5 font-bold text-slate-800 text-[11px] uppercase tracking-wider">
-                <Store className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Hồ sơ quán F&B</span>
+          {/* 1. Thẻ Tài khoản Người dùng */}
+          <div className="bg-gradient-to-br from-indigo-50/80 via-white to-slate-50 rounded-2xl border border-indigo-100 p-3.5 shadow-2xs space-y-2">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-9 h-9 rounded-full bg-indigo-600 text-white font-extrabold flex items-center justify-center text-sm shadow-sm">
+                {(currentUser?.full_name?.[0] || currentUser?.username?.[0] || 'U').toUpperCase()}
               </div>
-              
-              {savedStrategy && !isEditingProfile ? (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingProfile(true)}
-                  className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center space-x-0.5 hover:underline cursor-pointer"
-                >
-                  <Edit3 className="w-3 h-3" />
-                  <span>Sửa vị trí</span>
-                </button>
-              ) : savedStrategy && isEditingProfile ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModelId(savedStrategy.model_id);
-                    setAddress(savedStrategy.address);
-                    setSelectedProductIds(savedStrategy.product_ids);
-                    setIsEditingProfile(false);
-                  }}
-                  className="text-[10px] text-slate-500 hover:text-slate-800 font-bold flex items-center space-x-0.5 cursor-pointer"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Khôi phục</span>
-                </button>
-              ) : null}
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-slate-900 truncate text-xs sm:text-sm">
+                  {currentUser?.full_name || currentUser?.username || 'Khách Vãng Lai'}
+                </div>
+                <div className="text-[10px] text-slate-500 flex items-center space-x-1">
+                  <span>{currentUser ? `@${currentUser.username}` : 'Chưa đăng nhập'}</span>
+                </div>
+              </div>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                currentUser ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {currentUser ? 'Đã liên kết' : 'Khách'}
+              </span>
+            </div>
+          </div>
+
+          {/* 2. Thẻ Thông tin Cơ sở Kinh doanh */}
+          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/80">
+              <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center space-x-1.5">
+                <Store className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Cơ Sở Kinh Doanh</span>
+              </span>
+              <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded">
+                {savedStrategy ? 'Đang kích hoạt' : 'Mặc định'}
+              </span>
             </div>
 
-            {/* Trạng thái nạp hồ sơ */}
-            {savedStrategy && !isEditingProfile ? (
-              <div className="space-y-2">
-                <div className="p-2 rounded-xl bg-emerald-50/80 border border-emerald-200/70 text-emerald-800 flex items-start space-x-2">
-                  <BookmarkCheck className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-                  <div className="text-[11px] leading-tight">
-                    <span className="font-semibold block">Đã đồng bộ hồ sơ quán</span>
-                    <span className="text-emerald-700/80 text-[10px]">Tự động đối chiếu CSDL theo vị trí này</span>
-                  </div>
-                </div>
+            <div className="space-y-2 text-[11px]">
+              <div>
+                <span className="text-slate-400 block text-[10px]">Mô hình:</span>
+                <span className="font-bold text-slate-800 text-xs">{modelName}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px]">Sản phẩm chính:</span>
+                <span className="font-semibold text-slate-700">{productNames}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px]">Địa chỉ quán:</span>
+                <span className="text-slate-600 line-clamp-2" title={address}>
+                  {address}
+                </span>
+              </div>
+            </div>
+          </div>
 
-                <div className="space-y-1.5 pt-1 text-[11px]">
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Vị trí quán:</span>
-                    <span className="font-semibold text-slate-800 block truncate" title={address}>
-                      {address || "Chưa xác định địa chỉ"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Mô hình:</span>
-                    <span className="font-semibold text-slate-800">
-                      {getModelName(modelId)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Món chủ đạo:</span>
-                    <span className="font-semibold text-slate-800 line-clamp-2">
-                      {getProductNames() || "Chưa chọn món"}
-                    </span>
-                  </div>
+          {/* 3. Thẻ Định Phí & Vận Hành Thực Tế */}
+          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/80">
+              <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center space-x-1.5">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Định Phí & Vận Hành</span>
+              </span>
+              {profile.month_set && (
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {profile.month_set}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div className="bg-white p-2 rounded-xl border border-slate-200/80">
+                <span className="text-slate-400 block text-[10px]">Vốn dự phòng:</span>
+                <span className="font-bold text-slate-800">
+                  {profile.budget ? `${(Number(profile.budget) / 1e6).toFixed(0)}Tr` : (savedStrategy?.budget ? `${(Number(savedStrategy.budget) / 1e6).toFixed(0)}Tr` : '—')}
+                </span>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-slate-200/80">
+                <span className="text-slate-400 block text-[10px]">Tiền thuê/tháng:</span>
+                <span className="font-bold text-slate-800">
+                  {profile.rent ? `${(Number(profile.rent) / 1e6).toFixed(1)}Tr` : (savedStrategy?.rent ? `${(Number(savedStrategy.rent) / 1e6).toFixed(1)}Tr` : '—')}
+                </span>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-slate-200/80">
+                <span className="text-slate-400 block text-[10px]">Nhân sự:</span>
+                <span className="font-bold text-slate-800">
+                  {profile.staff_count ? `${profile.staff_count} người` : '—'}
+                </span>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-slate-200/80">
+                <span className="text-slate-400 block text-[10px]">Lương TB:</span>
+                <span className="font-bold text-slate-800">
+                  {profile.avg_salary ? `${(Number(profile.avg_salary) / 1e6).toFixed(1)}Tr` : '—'}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-1">
+              <span className="text-slate-400 block text-[10px]">Tệp khách hàng mục tiêu:</span>
+              <span className="font-semibold text-slate-700 text-[11px]">{displaySegments}</span>
+            </div>
+          </div>
+
+          {/* 4. Thẻ Sổ Sách Tháng Gần Nhất */}
+          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-3.5 space-y-2">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/80">
+              <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center space-x-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
+                <span>Sổ Sách Gần Nhất</span>
+              </span>
+              {latestLog && (
+                <span className="text-[10px] text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.5 rounded">
+                  {latestLog.month}
+                </span>
+              )}
+            </div>
+
+            {latestLog ? (
+              <div className="space-y-1.5 text-[11px]">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Doanh thu:</span>
+                  <span className="font-bold text-slate-800">{Number(latestLog.revenue).toLocaleString('vi-VN')} đ</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Lợi nhuận:</span>
+                  <span className={`font-bold ${latestLog.profit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                    {Number(latestLog.profit).toLocaleString('vi-VN')} đ
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Biên lợi nhuận:</span>
+                  <span className="font-semibold text-indigo-700 font-mono">
+                    {latestLog.margin_pct ? `${Number(latestLog.margin_pct).toFixed(1)}%` : '—'}
+                  </span>
                 </div>
               </div>
             ) : (
-              <div className="space-y-3">
-                {/* Địa chỉ quán */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                    Địa chỉ quán (Quét đối thủ 1km)
-                  </label>
-                  <div className="relative">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={address}
-                      onChange={(e) => setAddress(e.target.value)}
-                      placeholder="VD: 268 Lý Thường Kiệt, Q10"
-                      className="w-full pl-8 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition"
-                    />
-                  </div>
-                </div>
-
-                {/* Mô hình kinh doanh */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                    Mô hình kinh doanh
-                  </label>
-                  <div className="relative">
-                    <Store className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
-                    <select
-                      value={modelId}
-                      onChange={(e) => setModelId(e.target.value)}
-                      className="w-full pl-8 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition"
-                    >
-                      {metadata?.business_models?.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Chọn 1-3 món */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[10px] font-bold text-slate-600 uppercase">
-                      Món chủ đạo:
-                    </label>
-                    <span className="text-[10px] text-slate-400">
-                      {selectedProductIds.length}/3
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1 bg-white rounded-xl border border-slate-200">
-                    {metadata?.products?.map((p) => {
-                      const isSelected = selectedProductIds.includes(p.id);
-                      return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => toggleProduct(p.id)}
-                          className={`text-[10px] px-2 py-0.5 rounded-lg font-medium transition cursor-pointer ${
-                            isSelected
-                              ? 'bg-indigo-600 text-white shadow-xs'
-                              : 'bg-slate-50 text-slate-600 border border-slate-200 hover:border-indigo-300'
-                          }`}
-                        >
-                          {p.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
+              <p className="text-[11px] text-slate-400 italic">
+                Chưa có dữ liệu sổ sách tháng. Bạn có thể cập nhật ở mục Hồ Sơ & Sổ Sách.
+              </p>
             )}
           </div>
 
-          {/* KHỐI 2: TÌNH HUỐNG SỰ CỐ KHẨN CẤP (QUICK PROMPTS) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between font-bold text-[11px] text-slate-700 uppercase tracking-wider">
-              <div className="flex items-center space-x-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Kịch bản sự cố mẫu</span>
-              </div>
-              <span className="text-[10px] text-slate-400 lowercase font-normal">
-                (Click để hỏi)
-              </span>
+          {!savedStrategy && (
+            <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-[11px] space-y-1">
+              <span className="font-bold block">💡 Gợi ý cho bạn:</span>
+              <p className="text-[10px] leading-relaxed">
+                Hãy thẩm định ý tưởng ở Tab 1 và bấm "Lưu & Áp Dụng Kế Sách" để đồng bộ hồ sơ quán vào Copilot.
+              </p>
             </div>
+          )}
 
-            <div className="space-y-1.5">
-              {quickCrises.map((item, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => handleSend(item.query)}
-                  disabled={loading}
-                  className={`w-full p-2.5 text-left bg-slate-50/80 hover:bg-white border rounded-xl transition duration-150 group shadow-xs cursor-pointer ${
-                    item.type === 'competitive'
-                      ? 'border-slate-200 hover:border-amber-300'
-                      : 'border-slate-200 hover:border-blue-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className={`text-[11px] font-bold block truncate ${
-                      item.type === 'competitive' ? 'text-amber-900 group-hover:text-amber-700' : 'text-slate-800 group-hover:text-blue-700'
-                    }`}>
-                      {item.title}
-                    </span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${
-                      item.type === 'competitive' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      {item.type === 'competitive' ? 'DB2-DB5' : 'DB3-DB4'}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 block line-clamp-2 leading-relaxed">
-                    {item.query}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* KHỐI 3: HẠ TẦNG CSDL & MÔ HÌNH AI */}
-          <div className="p-3 bg-slate-50/60 rounded-xl border border-slate-200/80 space-y-1.5 text-[10px] text-slate-500">
-            <div className="font-bold text-slate-700 uppercase tracking-wider text-[10px] flex items-center space-x-1">
-              <ShieldAlert className="w-3 h-3 text-indigo-500" />
-              <span>Nguồn dữ liệu & AI Engine</span>
-            </div>
-            <div className="grid grid-cols-2 gap-1 text-[10px]">
-              <div>• DB1: 24 Quận Huyện</div>
-              <div>• DB2: Quét đối thủ 1km</div>
-              <div>• DB3: 13 Rủi ro F&B</div>
-              <div>• DB4: Bài học thực chiến</div>
-              <div>• DB5: Sức mua thị trường</div>
-              <div>• Vector: BGE-M3 (1024-d)</div>
-            </div>
-            <div className="pt-1 border-t border-slate-200/60 text-indigo-700 font-semibold">
-              🤖 LLM: Qwen3.5 4B (Ollama Local)
-            </div>
-          </div>
-
-        </div>
-
-        {/* 3. Footer Sidebar: Thông tin tài khoản người dùng */}
-        <div className="p-3 border-t border-slate-200/80 bg-slate-50/90 flex items-center justify-between shrink-0">
-          <div className="flex items-center space-x-2">
-            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-              {currentUser?.username ? currentUser.username[0].toUpperCase() : 'F'}
-            </div>
-            <div className="leading-tight">
-              <span className="font-bold text-xs text-slate-800 block truncate max-w-[150px]">
-                {currentUser?.full_name || currentUser?.username || 'Khách trải nghiệm'}
-              </span>
-              <span className="text-[10px] text-slate-400">
-                {currentUser ? 'Chủ quán đã xác thực' : 'Chưa đăng nhập'}
-              </span>
-            </div>
-          </div>
         </div>
       </aside>
 
-      {/* Backdrop mờ khi mở Sidebar trên Mobile */}
-      {isSidebarOpen && (
-        <div 
-          onClick={() => setIsSidebarOpen(false)}
-          className="fixed inset-0 bg-slate-900/30 z-20 md:hidden backdrop-blur-xs"
-        />
-      )}
-
       {/* ========================================================================= */}
-      {/* PHẦN CÒN LẠI BÊN PHẢI: KHUNG CHAT CỐ ĐỊNH PHONG CÁCH CHATGPT              */}
+      {/* 2. KHU VỰC CHÍNH: KHUNG CHAT TRỰC QUAN GIAO DIỆN 2                         */}
       {/* ========================================================================= */}
-      <div className="flex-1 flex flex-col h-full bg-slate-50 relative overflow-hidden">
+      <main className="flex-1 flex flex-col h-full bg-slate-50 overflow-hidden relative">
         
-        {/* 1. Header Khung Chat cố định ở đỉnh */}
-        <div className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-xs">
+        {/* Header Giao diện 2 */}
+        <header className="h-14 bg-white border-b border-slate-200 px-4 flex items-center justify-between shrink-0 shadow-2xs">
           <div className="flex items-center space-x-3">
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
-              title={isSidebarOpen ? "Thu gọn cột thông tin" : "Mở rộng cột thông tin"}
-            >
-              {isSidebarOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeft className="w-5 h-5" />}
-            </button>
-
+            {!isSidebarOpen && (
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                title="Mở hồ sơ quán"
+              >
+                <PanelLeft className="w-4 h-4" />
+              </button>
+            )}
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
+              <Bot className="w-4 h-4" />
+            </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <span className="font-bold text-xs sm:text-sm text-slate-800">
-                  Trợ Lý Cố Vấn F&B Thực Chiến
+              <h2 className="text-sm font-bold text-slate-900 leading-tight flex items-center gap-2">
+                <span>Trợ lý Chiến thuật Đồng hành</span>
+                <span className="text-[10px] px-2.5 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>Đang hoạt động</span>
                 </span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" title="Hệ thống Sẵn sàng" />
-              </div>
-              <div className="text-[11px] text-slate-400 hidden sm:block truncate max-w-md">
-                {getModelName(modelId)} • {address || "Chưa nhập địa chỉ"}
-              </div>
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Tư vấn Tác chiến & Xử lý Tình huống Vận hành Thực tế
+              </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
             <button
               type="button"
-              onClick={handleNewChat}
-              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition cursor-pointer"
+              onClick={() => {
+                setMessages([
+                  {
+                    id: 'welcome',
+                    sender: 'bot',
+                    isWelcome: true,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  }
+                ]);
+              }}
+              className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
               title="Làm mới cuộc trò chuyện"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RefreshCw className="w-4 h-4" />
             </button>
+            <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-lg">
+              {currentUser ? `User: ${currentUser.username}` : 'Chế độ Khách'}
+            </span>
           </div>
-        </div>
+        </header>
 
-        {/* 2. Vùng hiển thị tin nhắn (Cuộn độc lập, căn giữa chuẩn ChatGPT) */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 overscroll-contain">
-          <div className="max-w-3xl mx-auto space-y-5">
-            {chatHistory.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[92%] sm:max-w-[85%] rounded-3xl p-4 sm:p-5 space-y-3 ${
-                    msg.sender === 'user'
-                      ? 'bg-slate-900 text-white shadow-xs rounded-br-xs'
-                      : 'bg-white border border-slate-200/90 text-slate-800 shadow-xs rounded-tl-xs'
-                  }`}
-                >
-                  {/* Header tin nhắn AI */}
-                  {msg.sender === 'ai' && (
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-200/70 text-xs">
-                      <div className="flex items-center space-x-1.5 font-bold text-indigo-700">
-                        <Store className="w-4 h-4" />
-                        <span>Cố Vấn Thực Chiến (Qwen3.5 4B)</span>
-                        {msg.isStreaming && (
-                          <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 animate-pulse">
-                            Đang truyền tải...
-                          </span>
-                        )}
+        {/* Khung Canvas Tin nhắn (Chat Canvas) */}
+        <div 
+          ref={chatContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 relative"
+        >
+          <div className="max-w-3xl mx-auto space-y-4">
+            
+            {messages.map((msg) => {
+              // 1. Thẻ Chào mừng Ban đầu
+              if (msg.isWelcome) {
+                return (
+                  <div key={msg.id} className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+                    <div className="flex items-center space-x-2 text-indigo-600 font-bold text-sm sm:text-base">
+                      <Sparkles className="w-5 h-5" />
+                      <span>Chào bạn! Trợ lý Chiến thuật Đồng hành đã sẵn sàng</span>
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                      Tôi đồng hành cùng bạn trong suốt quá trình vận hành quán. Khi gặp bất kỳ khó khăn nào về khách hàng, đối thủ xung quanh, nhân sự hay tài chính, hãy đặt câu hỏi để nhận ngay <strong>kế sách tác chiến cụ thể trong 24h kèm lời thoại thực tế</strong>:
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs sm:text-sm">
+                      <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/70 space-y-1">
+                        <span className="font-bold text-amber-900 block text-xs sm:text-sm">💡 Kinh nghiệm & Kỹ thuật nghề</span>
+                        <span className="text-xs text-amber-800">Chọn nguyên liệu, kiểm soát hao hụt, mẹo pha chế/nấu nướng</span>
                       </div>
-                      <div className="flex items-center space-x-1">
-                        <button
-                          onClick={() => handleCopy(msg.id, msg.text, true)}
-                          className="px-2 py-1 text-[11px] font-semibold text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition flex items-center space-x-1 cursor-pointer"
-                          title="Copy định dạng gửi Zalo"
-                        >
-                          <Share2 className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">Gửi Zalo</span>
-                        </button>
-                        <button
-                          onClick={() => handleCopy(msg.id, msg.text, false)}
-                          className="p-1 text-slate-400 hover:text-slate-700 transition rounded-lg hover:bg-slate-200/50 cursor-pointer"
-                          title="Sao chép toàn bộ"
-                        >
-                          {copiedId === msg.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
+                      <div className="p-3 rounded-xl border border-rose-200 bg-rose-50/70 space-y-1">
+                        <span className="font-bold text-rose-900 block text-xs sm:text-sm">🚨 Gỡ rối Sự cố Vận hành</span>
+                        <span className="text-xs text-rose-800">Khách phàn nàn, nhân viên nghỉ đột xuất, chậm giờ ra món</span>
+                      </div>
+                      <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/70 space-y-1">
+                        <span className="font-bold text-blue-900 block text-xs sm:text-sm">⚖️ Đánh giá Quyết định (What-If)</span>
+                        <span className="text-xs text-blue-800">Giả định tăng/hạ giá, mở thêm món mới, đổi giờ mở cửa</span>
+                      </div>
+                      <div className="p-3 rounded-xl border border-purple-200 bg-purple-50/70 space-y-1">
+                        <span className="font-bold text-purple-900 block text-xs sm:text-sm">🎯 Đối phó Cạnh tranh</span>
+                        <span className="text-xs text-purple-800">Đối thủ mở sát vách, phá giá giành khách, giữ chân khách quen</span>
+                      </div>
+                      <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 sm:col-span-2 space-y-1">
+                        <span className="font-bold text-emerald-900 block text-xs sm:text-sm">🩺 Chẩn đoán Sức khỏe Doanh thu</span>
+                        <span className="text-xs text-emerald-800">Đông khách mà không thấy tiền dư, doanh thu chững lại, tìm lỗ rò rỉ dòng tiền</span>
                       </div>
                     </div>
-                  )}
 
-                  {/* BANNER HIỂN THỊ CHẾ ĐỘ AGENT Ở ĐẦU CÂU TRẢ LỜI CỦA AI */}
-                  {msg.sender === 'ai' && msg.intent && (
-                    msg.intent === 'COMPETITIVE' ? (
-                      <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/5 border border-amber-300 text-amber-950 text-xs shadow-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center space-x-1.5 font-bold text-amber-900">
-                            <span className="text-base">🎯</span>
-                            <span>{msg.intentBadge || "Chế độ: Phản công Cạnh tranh Vi mô"}</span>
+                    <p className="text-xs text-slate-400 italic">
+                      👉 Nhập câu hỏi hoặc tình huống của quán vào ô bên dưới để bắt đầu tham vấn!
+                    </p>
+                  </div>
+                );
+              }
+
+              // 2. Tin nhắn của Người dùng (Zoom kích thước chữ)
+              if (msg.sender === 'user') {
+                return (
+                  <div key={msg.id} className="flex justify-end items-start space-x-2.5">
+                    <div className="bg-indigo-600 text-white rounded-2xl rounded-tr-xs px-4 py-3 max-w-xl shadow-xs">
+                      <p className="text-sm sm:text-base font-medium leading-relaxed whitespace-pre-wrap">
+                        {msg.text}
+                      </p>
+                      <span className="text-[10px] text-indigo-200 block text-right mt-1">
+                        {msg.timestamp}
+                      </span>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0 mt-0.5 shadow-2xs">
+                      <User className="w-4 h-4" />
+                    </div>
+                  </div>
+                );
+              }
+
+              // 3. Tin nhắn Báo lỗi nếu có
+              if (msg.isError) {
+                return (
+                  <div key={msg.id} className="flex justify-start items-start space-x-2.5">
+                    <div className="w-8 h-8 rounded-full bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0 mt-0.5">
+                      <ShieldAlert className="w-4 h-4" />
+                    </div>
+                    <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl rounded-tl-xs p-3.5 max-w-lg text-xs sm:text-sm space-y-1">
+                      <span className="font-bold block">Đã có lỗi xảy ra</span>
+                      <p>{msg.errorText}</p>
+                    </div>
+                  </div>
+                );
+              }
+
+              // 4. Nếu Bot đang đợi tính toán (chưa có routerData):
+              if (!msg.routerData) {
+                return (
+                  <div key={msg.id} className="flex justify-start items-start space-x-2.5">
+                    <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                      <Cpu className="w-4 h-4 animate-spin" />
+                    </div>
+                    <div className="bg-white rounded-2xl rounded-tl-xs border border-slate-200 p-4 max-w-lg shadow-xs space-y-2 text-xs sm:text-sm">
+                      <div className="flex items-center space-x-2.5 text-indigo-600">
+                        <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                        <span className="font-semibold text-slate-700">Trợ lý đang phân tích tình huống & trích xuất bài học thực tế...</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              // 5. Phản hồi Chiến thuật Thực tế từ Bot
+              return (
+                <div key={msg.id} className="flex justify-start items-start space-x-2.5">
+                  <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                    <Cpu className="w-4 h-4" />
+                  </div>
+
+                  <div className="bg-white rounded-2xl rounded-tl-xs border border-slate-200 p-5 sm:p-6 max-w-3xl shadow-xs space-y-4 text-xs sm:text-sm w-full">
+
+                    {/* Phản hồi Chiến thuật Thực tế từ AI (Streaming Token-by-Token) */}
+                    {(msg.answer || msg.isStreaming) && (
+                      <div className="pt-2 space-y-3">
+                        <div className="flex items-center justify-between text-xs sm:text-sm font-bold text-slate-700">
+                          <div className="flex items-center space-x-2 text-indigo-700">
+                            <Sparkles className="w-4 h-4" />
+                            <span>Tư vấn Chiến thuật Thực tế:</span>
                           </div>
-                          {msg.competitorsCount > 0 && (
-                            <span className="bg-amber-200/80 text-amber-900 text-[10px] px-2 py-0.5 rounded-full font-bold">
-                              Quét {msg.competitorsCount} đối thủ 1km
+                          {msg.isStreaming && (
+                            <span className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-full flex items-center space-x-1.5 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-ping"></span>
+                              <span>AI đang gõ từng chữ...</span>
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-amber-800/90 mt-1">
-                          ⚡ Đã kích hoạt 4 CSDL: <strong>DB2</strong> (Đối thủ 1km) • <strong>DB3</strong> (Rủi ro F&B) • <strong>DB4</strong> (Kinh nghiệm đàm phán) • <strong>DB5</strong> (Sức mua thị trường).
-                        </div>
+
+                        {msg.answer ? (
+                          <div className="text-slate-800 leading-relaxed text-sm sm:text-[15px]">
+                            <FormattedMarkdown content={msg.answer} />
+                            {msg.isStreaming && (
+                              <span className="inline-block w-2 h-4 ml-1 bg-indigo-600 animate-pulse align-middle" />
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-2 text-slate-400 italic text-xs py-2">
+                            <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                            <span>Trợ lý đang lập kịch bản hành động tác chiến thực tế...</span>
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="p-3 rounded-2xl bg-blue-50/90 border border-blue-200 text-blue-950 text-xs shadow-xs">
-                        <div className="flex items-center space-x-1.5 font-bold text-blue-900">
-                          <span className="text-base">⚙️</span>
-                          <span>{msg.intentBadge || "Chế độ: Tối ưu Vận hành Nội bộ"}</span>
-                        </div>
-                        <div className="text-[11px] text-blue-800/90 mt-1">
-                          ⚡ Đã kích hoạt 2 CSDL: <strong>DB3</strong> (Sự cố vận hành) • <strong>DB4</strong> (Bài học xương máu & Lời thoại thực chiến).
-                        </div>
-                      </div>
-                    )
-                  )}
+                    )}
 
-                  {/* Nội dung câu trả lời */}
-                  {msg.sender === 'ai' ? (
-                    <div>
-                      {msg.isStreaming && !msg.text ? (
-                        <div className="flex items-center space-x-2 py-3 text-xs text-indigo-600 font-medium">
-                          <div className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                          <span>Đang định tuyến CSDL và khởi tạo kịch bản...</span>
-                        </div>
-                      ) : (
-                        <div className="relative">
-                          <FormattedMarkdown content={msg.text} />
-                          {msg.isStreaming && (
-                            <span className="inline-block w-2 h-4 bg-indigo-600 animate-pulse ml-1 align-middle rounded-xs" />
-                          )}
-                        </div>
-                      )}
+                    <div className="text-[11px] text-slate-400 pt-2 flex items-center justify-between border-t border-slate-100">
+                      <span>✓ Kế sách tác chiến đã đối soát thực tế</span>
+                      <span>{msg.timestamp}</span>
                     </div>
-                  ) : (
-                    <div className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap font-sans">
-                      {msg.text}
-                    </div>
-                  )}
 
-                  {/* Dấu vết tra cứu dữ liệu CSDL */}
-                  {msg.matched && (
-                    <div className="pt-2 border-t border-slate-200/50 flex flex-wrap gap-2 text-[10px] text-slate-500">
-                      {msg.intent === 'COMPETITIVE' && msg.matched.competitors_found > 0 && (
-                        <span className="bg-amber-50 text-amber-800 px-2 py-0.5 rounded border border-amber-200 font-medium">
-                          DB2: {msg.matched.competitors_found} đối thủ vi mô
-                        </span>
-                      )}
-                      <span className="bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                        DB3: {msg.matched.problems_found} sự cố rủi ro
-                      </span>
-                      <span className="bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                        DB4: {msg.matched.lessons_found} bài học xương máu
-                      </span>
-                      {msg.intent === 'COMPETITIVE' && msg.matched.market_found > 0 && (
-                        <span className="bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                          DB5: Sức mua & giờ cao điểm
-                        </span>
-                      )}
-                      <span className="bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                        Vector BGE-M3: 1024-d
-                      </span>
-                    </div>
-                  )}
-
-                  <div className={`text-[10px] text-right ${msg.sender === 'user' ? 'text-slate-400' : 'text-slate-400'}`}>
-                    {msg.timestamp}
                   </div>
                 </div>
+              );
+            })}
+
+            {/* Hiệu ứng Đang tải / Đang tính toán */}
+            {isLoading && (
+              <div className="flex justify-start items-center space-x-2.5 text-xs text-slate-500 p-2">
+                <div className="w-6 h-6 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-600 animate-spin">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </div>
+                <span className="italic">
+                  Trợ lý đang phân tích tình huống & lên kịch bản tác chiến...
+                </span>
               </div>
-            ))}
+            )}
+
             <div ref={messagesEndRef} />
           </div>
+
+          {/* Nút nổi hỗ trợ người dùng cuộn nhanh xuống đáy khi đang lướt đọc ở trên */}
+          {showScrollBottomBtn && (
+            <button
+              type="button"
+              onClick={() => scrollToBottom('smooth')}
+              className="sticky bottom-4 ml-auto mr-4 z-20 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg px-3.5 py-2 rounded-full text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+              <span>Cuộn xuống mới nhất</span>
+            </button>
+          )}
         </div>
 
-        {/* 3. Khung nhập liệu CỐ ĐỊNH Ở DƯỚI CÙNG (Sticky Bottom Input) */}
-        <div className="p-3 sm:p-4 bg-white/95 backdrop-blur-md border-t border-slate-200 shrink-0">
+        {/* Khung nhập liệu bên dưới (Sticky Bottom Input Bar - Zoom kích thước) */}
+        <div className="p-3.5 sm:p-4 bg-white border-t border-slate-200 shrink-0">
           <div className="max-w-3xl mx-auto">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSend();
-              }}
-              className="relative flex items-end bg-slate-50 border border-slate-300/80 rounded-2xl sm:rounded-3xl shadow-xs focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:bg-white transition p-1.5 sm:p-2"
-            >
-              <textarea
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+            <div className="flex items-center space-x-3 bg-slate-50 border border-slate-300 hover:border-slate-400 rounded-2xl p-2 sm:p-2.5 shadow-xs focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:bg-white transition">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Hỏi Cố Vấn F&B về sự cố kinh doanh (Nhấn Enter để gửi, Shift+Enter xuống dòng)..."
-                rows={1}
-                className="flex-1 max-h-36 resize-none bg-transparent px-3 py-2 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
-                disabled={loading}
+                placeholder="Nhập câu hỏi hoặc tình huống của quán để nhận cố vấn tác chiến..."
+                className="flex-1 bg-transparent text-sm sm:text-base py-1 px-2.5 outline-none text-slate-800 placeholder:text-slate-400 font-medium"
+                disabled={isLoading || messages.some((m) => m.isStreaming)}
               />
               <button
-                type="submit"
-                disabled={loading || !query.trim()}
-                className={`p-2.5 sm:p-3 rounded-xl sm:rounded-2xl text-white font-bold flex items-center justify-center transition shadow-sm ${
-                  loading || !query.trim()
-                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 shadow-indigo-600/20 cursor-pointer'
-                }`}
+                type="button"
+                onClick={() => handleSendMessage()}
+                disabled={!chatInput.trim() || isLoading || messages.some((m) => m.isStreaming)}
+                className="px-4 py-2 sm:px-5 sm:py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs sm:text-sm transition flex items-center space-x-1.5 cursor-pointer shrink-0 shadow-sm"
               >
-                {loading ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
+                <span>Gửi hỏi</span>
+                <Send className="w-4 h-4" />
               </button>
-            </form>
-            <div className="text-[11px] text-slate-400 mt-2 text-center flex items-center justify-center space-x-2 sm:space-x-3">
-              <span>⚡ Streaming Real-time SSE</span>
-              <span>•</span>
-              <span>🧠 Bộ nhớ hội thoại đa lượt</span>
-              <span>•</span>
-              <span>🎯 Dual-Engine Agentic</span>
             </div>
           </div>
         </div>
 
-      </div>
+      </main>
 
     </div>
   );
