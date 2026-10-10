@@ -1,4 +1,4 @@
-# HƯỚNG DẪN VẬN HÀNH: NỀN TẢNG RA QUYẾT ĐỊNH & TRỢ LÝ KINH DOANH THỰC CHIẾN (CLIENT APP)
+# HƯỚNG DẪN VẬN HÀNH: NỀN TẢNG RA QUYẾT ĐỊNH & TRỢ LÝ KINH DOANH THỰC CHIẾN F&B
 
 > **Hệ thống Song Trụ (Dual-Engine Architecture v3.2)**:
 > 1. **Giao diện 1 (Day 0 - Trước khi mở quán)**: Máy quét Thẩm định Ý tưởng (Feasibility Scanner).
@@ -23,10 +23,10 @@ Trước khi khởi chạy, máy chủ hoặc máy phát triển cần đáp ứ
 
 ## 2. HƯỚNG DẪN THIẾT LẬP MÔI TRƯỜNG CHẠY (STEP-BY-STEP SETUP)
 
-Thư mục `client_app` được thiết kế hoàn toàn **độc lập và tự chủ (self-contained)**. Bạn có thể chạy trực tiếp trong thư mục mẹ `MLAI` hoặc copy tách riêng thư mục `client_app` ra một nơi độc lập theo các bước dưới đây:
+Dự án được cấu trúc hoàn toàn **độc lập và tự chủ (self-contained)**. Bạn có thể đặt tên thư mục dự án tùy ý khi tải về (ví dụ: `fnb_ai_platform`, `decision_copilot`...) mà không ảnh hưởng tới bất kỳ thành phần nào của hệ thống. Mọi thao tác dưới đây đều được thực hiện **trực tiếp tại thư mục gốc của dự án**.
 
 ### Bước 1: Chuẩn bị file cấu hình `.env`
-Đảm bảo file `.env` đã có mặt tại thư mục gốc của `client_app` với đầy đủ các tham số cấu hình:
+Đảm bảo file `.env` đã có mặt tại thư mục gốc của dự án với đầy đủ các tham số cấu hình:
 
 ```env
 # Cổng chạy ứng dụng FastAPI
@@ -52,11 +52,7 @@ DEVICE=cuda
 
 ### Bước 2: Tạo và kích hoạt môi trường ảo Python (`venv`)
 
-Mở Terminal và điều hướng vào thư mục `client_app`:
-
-```bash
-cd client_app
-```
+Mở Terminal trực tiếp tại thư mục gốc của dự án và khởi tạo môi trường ảo:
 
 #### Trên Windows (PowerShell):
 ```powershell
@@ -128,17 +124,12 @@ cd ..
 
 ---
 
-### Bước 6: Khởi chạy Nền tảng Client App
+### Bước 6: Khởi chạy Nền tảng Ứng dụng
 
-Chạy lệnh sau tại thư mục `client_app` (khi môi trường `.venv` đang được kích hoạt):
+Chạy lệnh sau trực tiếp tại thư mục gốc của dự án (khi môi trường `.venv` đang được kích hoạt):
 
 ```bash
 python run.py
-```
-
-Nếu chạy từ thư mục gốc `MLAI`, bạn dùng lệnh:
-```bash
-.\.venv\Scripts\python.exe client_app/run.py
 ```
 
 ---
@@ -158,7 +149,7 @@ Sau khi khởi chạy thành công, mở trình duyệt web:
 ## 4. CẤU TRÚC THƯ MỤC CHUẨN HÓA
 
 ```
-client_app/
+./ (Thư mục gốc dự án)
 ├── .env                              # Biến môi trường hệ thống (Port, Mongo, Ollama, Device)
 ├── .gitignore                         # Danh mục loại trừ Git (Loại bỏ file test, cache, nháp)
 ├── requirements.txt                  # Danh mục đầy đủ 100% thư viện phụ thuộc Python
