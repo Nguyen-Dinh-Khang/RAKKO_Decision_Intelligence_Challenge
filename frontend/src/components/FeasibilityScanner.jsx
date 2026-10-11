@@ -285,8 +285,9 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
               };
               setResult(currentResult);
 
-              // In toàn bộ ID và Object được sử dụng ra Console của Trình duyệt
-              if (parsed.data.used_objects || parsed.data.used_object_ids) {
+              // In toàn bộ ID và Object được sử dụng ra Console của Trình duyệt (Đã tắt hiển thị theo yêu cầu)
+              const ENABLE_CONSOLE_LOG_IDS = false;
+              if (ENABLE_CONSOLE_LOG_IDS && (parsed.data.used_objects || parsed.data.used_object_ids)) {
                 console.group('🔍 [FEASIBILITY SCANNER] TOÀN BỘ ID & OBJECT ĐƯỢC SỬ DỤNG TRONG GIAO DIỆN 1');
                 console.log('📌 Danh sách ID tóm tắt (All Used IDs):', parsed.data.used_object_ids || parsed.data.used_objects?.all_used_ids);
                 console.log('🏛️ DB1 (Dân cư & Khu vực):', parsed.data.used_objects?.demographics);

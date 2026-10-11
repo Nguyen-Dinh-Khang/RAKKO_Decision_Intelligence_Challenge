@@ -14,6 +14,7 @@ Chức năng:
 
 import json
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -253,13 +254,21 @@ def calculate_deterministic_math(
         })
 
     elif submodule_id == "MODULE_3_4":
-        # Module 3.4: Runway sinh tồn khi doanh thu chạm đáy (zero-revenue)
+        # Module 3.4: Runway sinh tồn khi doanh thu chạm đáy (zero-revenue) - Làm tròn xuống, nếu < 1 tháng thì runway = 0
         fixed_costs = rent + total_payroll
-        runway_months = (budget / fixed_costs) if fixed_costs > 0 else 0.0
+        if budget <= 0 or fixed_costs <= 0:
+            runway_months = 0.0
+        else:
+            raw_runway = budget / fixed_costs
+            if raw_runway < 1.0:
+                runway_months = 0.0
+            else:
+                runway_months = float(math.floor(raw_runway))
+
         math_result.update({
             "remaining_budget": round(budget, 0),
             "fixed_costs": round(fixed_costs, 0),
-            "zero_revenue_runway_months": round(runway_months, 1),
+            "zero_revenue_runway_months": runway_months,
             "is_runway_safe": runway_months >= 3.0
         })
 

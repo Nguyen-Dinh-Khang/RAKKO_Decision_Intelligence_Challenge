@@ -3,6 +3,7 @@ simulator.py - Hàm tính toán toán học cho từng kịch bản thử tải 
 Được chuẩn hóa theo tài liệu đặc tả: Word/Function_md/stress_test_engine.md (Mục 3.1, 3.2, 3.3)
 """
 
+import math
 from typing import Dict, Any
 
 
@@ -64,12 +65,16 @@ def simulate_single_scenario(
     contingency_fund = budget * contingency_ratio
     monthly_fixed_cost = rent + salary_total + utilities_cost + contingency_fund
 
-    # 3. Tính toán Tháng sinh tồn (month)
+    # 3. Tính toán Tháng sinh tồn (month) - Làm tròn xuống, nếu < 1 tháng thì kích hoạt runway = 0
     remaining_cash = budget - actual_capex
     if remaining_cash <= 0 or monthly_fixed_cost <= 0:
         survival_months = 0.0
     else:
-        survival_months = max(0.0, round(remaining_cash / monthly_fixed_cost, 1))
+        raw_months = remaining_cash / monthly_fixed_cost
+        if raw_months < 1.0:
+            survival_months = 0.0
+        else:
+            survival_months = float(math.floor(raw_months))
 
     return {
         "scenario": scenario_name,
