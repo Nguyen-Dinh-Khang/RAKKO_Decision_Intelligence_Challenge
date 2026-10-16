@@ -15,13 +15,13 @@ PREMIUM_SALARY_MULTIPLIER = 1.25        # Lương mỗi người tăng 25%
 PREMIUM_STAFF_ADDON = 1                 # Bổ sung thêm 1 nhân sự
 PREMIUM_UTILITIES_MULTIPLIER = 1.30     # Điện nước tăng 30%
 
-# 3. Giá thuê mặt bằng mặc định dự phòng (Fallback khi người dùng để trống hoặc nhập 0)
+# 3. Giá thuê mặt bằng mặc định dự phòng (Fallback khi người dùng để trống)
 DEFAULT_RENT_BY_MODEL = {
     101: 10_000_000,    # Quán ăn sáng
     102: 12_000_000,    # Quán nước / Cà phê
     103: 15_000_000,    # Quán cơm / Nhà hàng nhỏ
     104: 16_000_000,    # Quán nhậu / Ăn vặt
-    105: 5_000_000,     # Kiosk / Xe đẩy mang đi
+    105: 1_500_000,     # Kiosk / Xe đẩy mang đi
     106: 8_000_000,     # Cửa hàng tạp hóa / Đại lý
     107: 12_000_000,    # Cửa hàng chuyên doanh bán lẻ
     108: 14_000_000,    # Tiệm làm đẹp / Spa

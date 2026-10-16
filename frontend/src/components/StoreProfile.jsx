@@ -284,7 +284,7 @@ export default function StoreProfile({ metadata, currentUser, savedStrategy, onS
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
-                  {savedStrategy?.model_name || 'Hồ sơ Quán F&B'}
+                  {savedStrategy?.model_name || 'Hồ sơ Cơ sở Kinh doanh'}
                 </h1>
                 {savedStrategy ? (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
@@ -389,6 +389,7 @@ export default function StoreProfile({ metadata, currentUser, savedStrategy, onS
                     <span className="font-extrabold text-slate-800 text-base">
                       {(profile.staff_count || 0) > 0 ? `${profile.staff_count} người` : '0 người (Tự làm)'}
                     </span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">(không bao gồm chủ cơ sở)</span>
                   </div>
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <span className="text-[11px] text-slate-500 block">Lương bình quân / người:</span>
@@ -510,7 +511,7 @@ export default function StoreProfile({ metadata, currentUser, savedStrategy, onS
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Số lượng nhân viên:
+                      Số lượng nhân viên <span className="text-[10px] text-slate-400 font-normal">(không bao gồm chủ cơ sở)</span>:
                     </label>
                     <input
                       type="number"
@@ -676,7 +677,7 @@ export default function StoreProfile({ metadata, currentUser, savedStrategy, onS
             </div>
 
             <p className="text-[11px] text-slate-500 leading-relaxed bg-blue-50/50 p-2.5 rounded-xl border border-blue-100/60">
-              💡 Đây là các con số mục tiêu do bộ máy giả lập tính toán trước khi mở quán, dùng để đối chiếu khi AI chẩn đoán xem quán có bị lệch kế hoạch không.
+              💡 Đây là các con số mục tiêu do bộ máy giả lập tính toán trước khi mở kinh doanh, dùng để đối chiếu khi AI chẩn đoán xem cơ sở có bị lệch kế hoạch không.
             </p>
           </div>
 

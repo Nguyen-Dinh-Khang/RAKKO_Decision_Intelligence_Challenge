@@ -3,9 +3,10 @@ import {
   Bot, Sparkles, Send, Store, PanelLeftClose, PanelLeft, 
   HelpCircle, CheckCircle2, XCircle, ArrowRight, ArrowDown, Layers, 
   ShieldAlert, Cpu, RefreshCw, User, DollarSign, Users, Calendar,
-  TrendingUp, MapPin, Tag, ShieldCheck
+  TrendingUp, MapPin, Tag, ShieldCheck, BookOpen, BookmarkCheck, Bookmark
 } from 'lucide-react';
 import FormattedMarkdown from './FormattedMarkdown';
+import TacticalPlaybookModal from './TacticalPlaybookModal';
 
 /**
  * TacticalCopilot - Giao diện 2: Trợ lý Chiến thuật Đồng hành (Day 1 - 365)
@@ -20,10 +21,80 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
   const userScrolledUpRef = useRef(false);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
+  // Sổ tay tác chiến (Tactical Playbook)
+  const [isPlaybookOpen, setIsPlaybookOpen] = useState(false);
+  const [savedPlaybookMap, setSavedPlaybookMap] = useState({});
+  const [savingPlaybookId, setSavingPlaybookId] = useState(null);
+  const [pendingTasksCount, setPendingTasksCount] = useState(0);
+
+  // Lấy thống kê nhiệm vụ chưa làm từ Sổ tay tác chiến
+  const fetchPlaybookStats = async () => {
+    try {
+      const token = localStorage.getItem('mlai_user_token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch('/api/copilot/playbook/entries', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        const pending = (data.total_tasks || 0) - (data.total_completed || 0);
+        setPendingTasksCount(Math.max(0, pending));
+      }
+    } catch (err) {
+      console.warn('Không thể tải thống kê sổ tay tác chiến:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchPlaybookStats();
+  }, [currentUser]);
+
+  // Lưu kế sách vào Sổ tay tác chiến
+  const handleSaveToPlaybook = async (msg) => {
+    try {
+      const token = localStorage.getItem('mlai_user_token');
+      if (!token) {
+        alert('Vui lòng đăng nhập để lưu vào Sổ tay tác chiến!');
+        return;
+      }
+      setSavingPlaybookId(msg.id);
+      
+      const userQuery = msg.routerData?.query || messages.slice().reverse().find(m => m.sender === 'user')?.text || 'Câu hỏi tình huống';
+      const payload = {
+        query: userQuery,
+        branch_id: msg.routerData?.branch || 'BRANCH_UNKNOWN',
+        branch_name: msg.routerData?.branch_name || 'Tác chiến vận hành',
+        model_name: modelName,
+        strategy_id: savedStrategy?._id || null,
+        answer_markdown: msg.answer
+      };
+
+      const res = await fetch('/api/copilot/playbook/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        setSavedPlaybookMap(prev => ({ ...prev, [msg.id]: true }));
+        await fetchPlaybookStats();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData.detail || 'Lỗi khi lưu kế sách');
+      }
+    } catch (err) {
+      console.error('Lỗi lưu sổ tay:', err);
+      alert('Không thể kết nối đến máy chủ để lưu kế sách!');
+    } finally {
+      setSavingPlaybookId(null);
+    }
+  };
+
   // Lấy thông tin cơ bản từ kế sách quán đã lưu & Profile người dùng
   const modelName = savedStrategy?.model_name || savedStrategy?.business_model_name || 'Chưa thiết lập mô hình';
   const address = savedStrategy?.address || 'Cổng ĐH Bách Khoa, Tô Hiến Thành, Q10';
-  const productNames = savedStrategy?.product_names?.join(', ') || 'Chưa thiết lập món';
+  const productNames = savedStrategy?.product_names?.join(', ') || 'Chưa thiết lập sản phẩm/dịch vụ';
 
   const profile = savedStrategy?.profile || {};
   const simulationProfile = savedStrategy?.simulation_profile || {};
@@ -247,6 +318,7 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
           address: savedStrategy?.address || address,
           coordinates: savedStrategy?.coordinates,
           product_ids: savedStrategy?.product_ids || [],
+          customer_segment_ids: savedStrategy?.customer_segment_ids || (savedStrategy?.profile?.customer_segment_ids || []),
           conversation_history: convHistory
         })
       });
@@ -366,7 +438,7 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
             </div>
             <div>
               <h3 className="font-bold text-xs sm:text-sm text-slate-900 leading-tight">
-                Hồ Sơ Chủ Quán
+                Hồ Sơ Cơ Sở Kinh Doanh
               </h3>
               <p className="text-[10px] text-slate-500">
                 Ngữ cảnh thực tế đồng hành
@@ -430,7 +502,7 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
                 <span className="font-semibold text-slate-700">{productNames}</span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[10px]">Địa chỉ quán:</span>
+                <span className="text-slate-400 block text-[10px]">Địa chỉ cơ sở:</span>
                 <span className="text-slate-600 line-clamp-2" title={address}>
                   {address}
                 </span>
@@ -468,7 +540,7 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
               <div className="bg-white p-2 rounded-xl border border-slate-200/80">
                 <span className="text-slate-400 block text-[10px]">Nhân sự:</span>
                 <span className="font-bold text-slate-800">
-                  {profile.staff_count ? `${profile.staff_count} người` : '—'}
+                  {(profile.staff_count !== undefined && profile.staff_count !== null) ? (profile.staff_count > 0 ? `${profile.staff_count} người` : '0 người') : '—'}
                 </span>
               </div>
               <div className="bg-white p-2 rounded-xl border border-slate-200/80">
@@ -529,7 +601,7 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
             <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-[11px] space-y-1">
               <span className="font-bold block">💡 Gợi ý cho bạn:</span>
               <p className="text-[10px] leading-relaxed">
-                Hãy thẩm định ý tưởng ở Tab 1 và bấm "Lưu & Áp Dụng Kế Sách" để đồng bộ hồ sơ quán vào Copilot.
+                Hãy thẩm định ý tưởng ở Tab 1 và bấm "Lưu & Áp Dụng Kế Sách" để đồng bộ hồ sơ cơ sở vào Copilot.
               </p>
             </div>
           )}
@@ -550,7 +622,7 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
                 className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-                title="Mở hồ sơ quán"
+                title="Mở hồ sơ cơ sở"
               >
                 <PanelLeft className="w-4 h-4" />
               </button>
@@ -573,6 +645,26 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
           </div>
 
           <div className="flex items-center space-x-2">
+            {/* Nút mở Sổ tay tác chiến */}
+            <button
+              type="button"
+              onClick={() => setIsPlaybookOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 text-indigo-800 border border-indigo-200 text-xs font-bold flex items-center space-x-1.5 transition shadow-2xs cursor-pointer"
+              title="Mở Sổ tay tác chiến & Bảng checklist"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Sổ Tay Tác Chiến</span>
+              {pendingTasksCount > 0 ? (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500 text-white font-extrabold animate-pulse">
+                  {pendingTasksCount}
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 text-indigo-700 font-extrabold">
+                  ✓
+                </span>
+              )}
+            </button>
+
             <button
               type="button"
               onClick={() => {
@@ -614,21 +706,21 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
                       <span>Chào bạn! Trợ lý Chiến thuật Đồng hành đã sẵn sàng</span>
                     </div>
                     <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                      Tôi đồng hành cùng bạn trong suốt quá trình vận hành quán. Khi gặp bất kỳ khó khăn nào về khách hàng, đối thủ xung quanh, nhân sự hay tài chính, hãy đặt câu hỏi để nhận ngay <strong>kế sách tác chiến cụ thể trong 24h kèm lời thoại thực tế</strong>:
+                      Tôi đồng hành cùng bạn trong suốt quá trình vận hành kinh doanh. Khi gặp bất kỳ khó khăn nào về khách hàng, đối thủ xung quanh, nhân sự hay tài chính, hãy đặt câu hỏi để nhận ngay <strong>kế sách tác chiến cụ thể trong 24h kèm lời thoại thực tế</strong>:
                     </p>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs sm:text-sm">
                       <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/70 space-y-1">
                         <span className="font-bold text-amber-900 block text-xs sm:text-sm">💡 Kinh nghiệm & Kỹ thuật nghề</span>
-                        <span className="text-xs text-amber-800">Chọn nguyên liệu, kiểm soát hao hụt, mẹo pha chế/nấu nướng</span>
+                        <span className="text-xs text-amber-800">Chọn nguyên vật liệu, kiểm soát hao hụt, tiêu chuẩn chất lượng sản phẩm/dịch vụ</span>
                       </div>
                       <div className="p-3 rounded-xl border border-rose-200 bg-rose-50/70 space-y-1">
                         <span className="font-bold text-rose-900 block text-xs sm:text-sm">🚨 Gỡ rối Sự cố Vận hành</span>
-                        <span className="text-xs text-rose-800">Khách phàn nàn, nhân viên nghỉ đột xuất, chậm giờ ra món</span>
+                        <span className="text-xs text-rose-800">Khách phàn nàn, nhân viên nghỉ đột xuất, chậm tiến độ phục vụ/giao hàng</span>
                       </div>
                       <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/70 space-y-1">
                         <span className="font-bold text-blue-900 block text-xs sm:text-sm">⚖️ Đánh giá Quyết định (What-If)</span>
-                        <span className="text-xs text-blue-800">Giả định tăng/hạ giá, mở thêm món mới, đổi giờ mở cửa</span>
+                        <span className="text-xs text-blue-800">Giả định tăng/hạ giá, mở thêm sản phẩm/dịch vụ mới, đổi giờ mở cửa</span>
                       </div>
                       <div className="p-3 rounded-xl border border-purple-200 bg-purple-50/70 space-y-1">
                         <span className="font-bold text-purple-900 block text-xs sm:text-sm">🎯 Đối phó Cạnh tranh</span>
@@ -641,7 +733,7 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
                     </div>
 
                     <p className="text-xs text-slate-400 italic">
-                      👉 Nhập câu hỏi hoặc tình huống của quán vào ô bên dưới để bắt đầu tham vấn!
+                      👉 Nhập câu hỏi hoặc tình huống kinh doanh vào ô bên dưới để bắt đầu tham vấn!
                     </p>
                   </div>
                 );
@@ -738,8 +830,39 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
                       </div>
                     )}
 
-                    <div className="text-[11px] text-slate-400 pt-2 flex items-center justify-between border-t border-slate-100">
-                      <span>✓ Kế sách tác chiến đã đối soát thực tế</span>
+                    <div className="text-[11px] text-slate-400 pt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-t border-slate-100">
+                      <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                        <span>✓ Kế sách tác chiến đã đối soát thực tế</span>
+                        {msg.answer && !msg.isStreaming && (
+                          <button
+                            type="button"
+                            onClick={() => handleSaveToPlaybook(msg)}
+                            disabled={savedPlaybookMap[msg.id] || savingPlaybookId === msg.id}
+                            className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                              savedPlaybookMap[msg.id]
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 shadow-2xs hover:shadow-xs'
+                            }`}
+                          >
+                            {savedPlaybookMap[msg.id] ? (
+                              <>
+                                <BookmarkCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Đã lưu vào Sổ tay</span>
+                              </>
+                            ) : savingPlaybookId === msg.id ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>Đang lưu...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Bookmark className="w-3.5 h-3.5" />
+                                <span>Lưu vào Sổ tay</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
                       <span>{msg.timestamp}</span>
                     </div>
 
@@ -785,7 +908,7 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Nhập câu hỏi hoặc tình huống của quán để nhận cố vấn tác chiến..."
+                placeholder="Nhập câu hỏi hoặc tình huống kinh doanh để nhận cố vấn tác chiến..."
                 className="flex-1 bg-transparent text-sm sm:text-base py-1 px-2.5 outline-none text-slate-800 placeholder:text-slate-400 font-medium"
                 disabled={isLoading || messages.some((m) => m.isStreaming)}
               />
@@ -799,10 +922,21 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
                 <Send className="w-4 h-4" />
               </button>
             </div>
+            {/* DÒNG LƯU Ý PHÁP LÝ & QUYỀN TỰ QUYẾT */}
+            <div className="mt-2 text-center text-[10px] text-slate-400 leading-normal max-w-2xl mx-auto">
+              💡 <strong>Lưu ý</strong>: Trợ lý cung cấp chiến lược gợi ý dựa trên dữ liệu thực tế, quyền quyết định hoàn toàn thuộc về bạn. Các thủ tục hành chính, giấy tờ pháp lý không nằm trong phạm vi nhiệm vụ của hệ thống.
+            </div>
           </div>
         </div>
 
       </main>
+
+      {/* MODAL SỔ TAY TÁC CHIẾN & BẢNG CHECKLIST */}
+      <TacticalPlaybookModal
+        isOpen={isPlaybookOpen}
+        onClose={() => setIsPlaybookOpen(false)}
+        onTaskToggled={fetchPlaybookStats}
+      />
 
     </div>
   );

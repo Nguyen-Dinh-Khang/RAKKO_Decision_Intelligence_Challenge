@@ -12,15 +12,17 @@ Mục đích:
 from typing import Dict, List, Any, Optional, Tuple
 
 # System Prompt chuyên biệt cho Giao diện 1 Thẩm định & Cố vấn Chiến lược
-SCANNER_SYSTEM_PROMPT = """Bạn là Chuyên gia Cố vấn Chiến lược & Tác chiến F&B / Bán lẻ thực chiến hàng đầu tại Việt Nam.
-Vai trò của bạn: Đóng vai trò là Giám đốc Chiến lược (Chief Strategy Officer - CSO) tư vấn trực diện cho chủ quán.
+SCANNER_SYSTEM_PROMPT = """Bạn là Chuyên gia Cố vấn Chiến lược & Tác chiến Hộ Kinh doanh Bán lẻ & Dịch vụ Đời sống thực chiến hàng đầu tại Việt Nam.
+Vai trò của bạn: Đóng vai trò là Giám đốc Chiến lược (Chief Strategy Officer - CSO) tư vấn trực diện cho chủ cơ sở / người kinh doanh.
 
 NGUYÊN TẮC SUY LUẬN & TRẢ LỜI CỐT TỬ:
-1. TUYỆT ĐỐI KHÔNG TÓM TẮT LẠI SỐ LIỆU ĐÃ CÓ TRÊN GIAO DIỆN: Người dùng đã nhìn thấy các thẻ chỉ số Capex, Runway, danh sách đối thủ và cạm bẫy trên giao diện rồi. Tuyệt đối không liệt kê lại các con số hay danh sách quán thuần túy vì gây dư thừa và lãng phí thời gian.
+1. TUYỆT ĐỐI KHÔNG TÓM TẮT LẠI SỐ LIỆU ĐÃ CÓ TRÊN GIAO DIỆN: Người dùng đã nhìn thấy các thẻ chỉ số Capex, Runway, danh sách đối thủ và cạm bẫy trên giao diện rồi. Tuyệt đối không liệt kê lại các con số hay danh sách điểm bán thuần túy vì gây dư thừa và lãng phí thời gian.
 2. LỘ TRÌNH SUY LUẬN & RA QUYẾT ĐỊNH (REASONING & RATIONALE):
    - Mọi phương án đưa ra BẮT BUỘC phải đi kèm lời giải thích: "Tại sao lại chọn phương án này thay vì phương án khác?" (Dựa trên sự đánh đổi giữa vốn mỏng, tử huyệt đối thủ gần nhất và thói quen khách hàng).
-3. HÀNH ĐỘNG CỤ THỂ, ĐO LƯỜNG ĐƯỢC: Có con số hòa vốn (số đơn/ngày), có kịch bản 30-60-90 ngày, có lời thoại thực chiến, có kịch bản cắt lỗ thoát hiểm.
-4. GIỌNG VĂN: Điềm tĩnh, thực tế, sắc bén và thấu hiểu bài toán kinh doanh; tôn trọng chủ quán, nói thẳng vào hành động và phân tích lý do cốt lõi, không dùng sáo ngữ hay văn mẫu giáo điều.
+3. HÀNH ĐỘNG CỤ THỂ, ĐO LƯỜNG ĐƯỢC: Có con số hòa vốn (số đơn/ngày hoặc lượt phục vụ/ngày), có kịch bản 30-60-90 ngày, có lời thoại thực chiến, có kịch bản cắt lỗ thoát hiểm.
+4. GIỌNG VĂN: Điềm tĩnh, thực tế, sắc bén và thấu hiểu bài toán kinh doanh; tôn trọng chủ cơ sở, nói thẳng vào hành động và phân tích lý do cốt lõi, không dùng sáo ngữ hay văn mẫu giáo điều.
+5. ĐÍNH KÈM LƯU Ý PHÁP LÝ & QUYỀN TỰ QUYẾT: Ở cuối cùng của bản báo cáo, luôn thêm dòng lưu ý nguyên văn:
+*(Lưu ý: Đây là chiến lược gợi ý dựa trên dữ liệu và bài toán kinh doanh thực tế, quyền quyết định hoàn toàn nằm ở bạn. Toàn bộ thủ tục hành chính, giấy tờ pháp lý, đăng ký kinh doanh, an toàn thực phẩm và pháp lý mặt bằng không nằm trong phạm vi nhiệm vụ của hệ thống — chủ cơ sở tự chịu trách nhiệm thực hiện theo quy định pháp luật.)*
 """
 
 
@@ -51,10 +53,11 @@ def _format_stress_context(stress_test: Any, budget: float, rent: float) -> Tupl
     needed_daily_revenue = daily_fixed / gross_margin if gross_margin > 0 else 0
     breakeven_orders_per_day = int(needed_daily_revenue / aov_val) if aov_val > 0 else 0
 
+    rent_desc = f"{rent:,.0f}đ/tháng" if rent > 0 else "0đ (Mặt bằng có sẵn / Điểm bán 0 đồng)"
     lines = [
         f"- Số vốn khởi nghiệp hiện có: {budget:,.0f} VNĐ",
         f"- Chi phí setup ban đầu (Capex sàn): {capex_val:,.0f} VNĐ",
-        f"- Định phí vận hành hàng tháng (Opex): {monthly_fixed:,.0f} VNĐ/tháng (Tiền thuê mặt bằng: {rent:,.0f}đ/tháng, Lương {staff_cnt} nhân sự, Điện nước: {util_cost:,.0f}đ/tháng)",
+        f"- Định phí vận hành hàng tháng (Opex): {monthly_fixed:,.0f} VNĐ/tháng (Tiền thuê mặt bằng: {rent_desc}, Lương {staff_cnt} nhân sự, Điện nước: {util_cost:,.0f}đ/tháng)",
         f"- Giá trị đơn hàng trung bình kỳ vọng (AOV): {aov_val:,.0f} VNĐ/đơn",
         f"- Số tháng sinh tồn khi chưa có doanh thu (Runway): {runway_months:.1f} tháng",
         f"- Ngưỡng hòa vốn ước tính: Cần đạt khoảng ~{breakeven_orders_per_day} đơn/ngày (tương đương ~{needed_daily_revenue:,.0f}đ doanh thu/ngày) để bù đắp toàn bộ định phí cố định."
@@ -154,45 +157,37 @@ def build_scanner_prompt(
     cust_insights = market_gaps.get("customer_insights", {}) if isinstance(market_gaps, dict) else {}
     golden_hour = market_gaps.get("recommended_time", cust_insights.get("time", "06:30 - 08:30"))
     cust_behavior = cust_insights.get("behavior", "Khách mua nhanh mang đi, nhạy cảm về thời gian chờ đợi")
+    sec_insights = cust_insights.get("secondary_insights")
+
+    sec_context = ""
+    if sec_insights and isinstance(sec_insights, dict):
+        try:
+            from ...tag_manager import tag_manager
+            sec_pid = sec_insights.get("product_id")
+            sec_pname = tag_manager.get_tag_name(sec_pid) if sec_pid else "món bán kèm"
+        except Exception:
+            sec_pname = "món bán kèm"
+        sec_time = sec_insights.get("time", "")
+        sec_beh = sec_insights.get("behavior", "")
+        sec_price = sec_insights.get("price", "")
+        sec_context = f"\n  + Món bán kèm / bổ trợ ({sec_pname} - giá {sec_price}): Giờ cao điểm phụ: {sec_time} (Hành vi: {sec_beh}). Khai thác để tạo combo bán chéo tăng doanh thu."
 
     # =========================================================================
     # NHÁNH 1: BÁO ĐỘNG ĐỎ - RUNWAY <= 0 THÁNG (CẠN VỐN NGAY TỪ ĐẦU)
+    # Tách riêng toàn bộ logic may đo theo tầng mô hình sang module insolvency_rules
     # =========================================================================
     if runway_months <= 0.0:
-        entity_title = "CHỦ ĐIỂM BÁN / XE ĐẨY" if model_id == 105 else "CHỦ QUÁN"
-        if model_id == 105:
-            opt1_text = "- Phương án 1 (Tối giản Capex xe đẩy & Bán thử nghiệm): Cắt giảm tối đa chi phí đóng xe đẩy / quầy kiosk (mua xe thanh lý, tinh giản thiết bị xa xỉ, hoặc bán online mang đi tại nhà trước để gom khách). Giải thích: Phương án này giúp cắt giảm khoản chi phí nào và đưa Runway từ 0 tháng lên mức sinh tồn an toàn?"
-        else:
-            opt1_text = "- Phương án 1 (Hạ quy mô mô hình): Chuyển đổi mô hình (ví dụ: từ quán thuê mặt bằng lớn sang ki-ốt nhỏ, xe đẩy mang đi hoặc bán online mang đi). Giải thích: Phương án này giúp cắt giảm khoản Capex nào và đưa Runway từ 0 tháng lên bao nhiêu tháng?"
-
-        user_prompt = f"""TÌNH HUỐNG KHẨN CẤP: DÒNG TIỀN BÁO ĐỘNG ĐỎ (RUNWAY = 0.0 THÁNG - NGUY CƠ MẤT TRẮNG VỐN NGÀY ĐẦU).
-
-HỒ SƠ KHẢO SÁT CỦA {entity_title}:
-- Địa điểm dự kiến: {address}
-- Mô hình: {model_name}
-- Mặt hàng định bán: {products_str}
-- Dữ liệu tài chính đo lường từ Stress Test:
-{stress_str}
-
-NHIỆM VỤ DÀNH CHO CỐ VẤN CHIẾN LƯỢC:
-Hãy vào vai một người cố vấn kinh doanh F&B dạn dày kinh nghiệm, thẳng thắn nhưng đầy trách nhiệm và thấu cảm.
-Tuyệt đối không vẽ ra kế hoạch kinh doanh 1 năm màu hồng khi người này không có đủ tiền để mở cửa ngày đầu!
-Hãy phân tích sự thật tài chính và vạch ra các phương án thoát hiểm, giải thích cặn kẽ tại sao lại chọn từng phương án theo đúng cấu trúc sau:
-
-### 1. BÓC TÁCH NGUYÊN NHÂN CỐT TỬ CỦA BÁO ĐỘNG ĐỎ
-- Đánh giá thẳng thắn về mức độ rủi ro: Tuyên bố mức điểm khả thi (1/10 hoặc 2/10) và giải thích tại sao số vốn {budget:,.0f}đ hiện tại là "tự sát tài chính" khi so với Capex setup và định phí hàng tháng.
-- Chỉ rõ lỗ hổng: Tiền cọc nhà + setup xong thì còn bao nhiêu đồng vốn lưu động để gồng lỗ trong tháng đầu tiên?
-
-### 2. CÁC PHƯƠNG ÁN TÁI CẤU TRÚC VỐN KHẢ THI (NÊU PHƯƠNG ÁN & GIẢI THÍCH LÝ DO)
-Đưa ra 3 phương án hành động cụ thể để người dùng lựa chọn, với mỗi phương án phải giải thích rõ: **Tại sao lại chọn phương án này?**
-{opt1_text}
-- Phương án 2 (Đàm phán & Tối ưu định phí): Cách chọn lại vị trí mặt bằng với mức giá thuê không vượt quá ngưỡng an toàn. Giải thích: Tại sao tiền nhà tối đa chỉ nên chiếm một tỷ lệ nhất định so với vốn dự phòng?
-- Phương án 3 (Tích lũy & Gọi vốn hợp tác): Xác định chính xác số tiền tối thiểu cần chuẩn bị thêm trước khi đặt bút ký hợp đồng thuê.
-
-### 3. LỜI KHUYÊN DỪNG LẠI ĐÚNG LÚC (EXIT STRATEGY TRƯỚC KHI XUỐNG TIỀN)
-- Đưa ra lời khuyên chân thành: Những việc tuyệt đối KHÔNG ĐƯỢC LÀM ngay lúc này (ví dụ: vay mượn lãi cao, đặt cọc vội vã).
-- Kế hoạch thử nghiệm chi phí 0 đồng (Smoke Test) để kiểm tra nhu cầu món {products_str} trước khi bỏ một đồng vốn nào vào mặt bằng hay trang thiết bị.
-"""
+        from .insolvency_rules import build_insolvency_prompt
+        user_prompt = build_insolvency_prompt(
+            form_data=form_data,
+            stress_metrics=stress_metrics,
+            stress_str=stress_str,
+            budget=budget,
+            rent=rent,
+            address=address,
+            model_name=model_name,
+            products_str=products_str
+        )
         return user_prompt, SCANNER_SYSTEM_PROMPT
 
     # =========================================================================
@@ -208,7 +203,7 @@ Hãy phân tích sự thật tài chính và vạch ra các phương án thoát 
 - Khoảng trống thị trường & Thói quen khách hàng (DB5):
   + Tử huyệt đối thủ lớn nhất: {important_w}
   + Điểm yếu hệ thống khu vực: {normal_w}
-  + Giờ vàng mở bán: {golden_hour} (Hành vi: {cust_behavior})
+  + Giờ vàng mở bán (Món chủ lực): {golden_hour} (Hành vi: {cust_behavior}){sec_context}
 - Bài học thực chiến & Cạm bẫy từ người đi trước (DB3 & DB4):
 {playbook_str}
 
@@ -240,7 +235,7 @@ QUY TẮC BẮT BUỘC:
 - Giai đoạn 60 - 90 ngày (Tích lũy & Tối ưu hóa tệp khách quen):
   + Phương án hành động: Chiến lược kéo khách quay lại (Retention) và nâng giá trị đơn hàng (AOV).
   + Tại sao lại chọn phương án này: Lý do tập trung vào khách quen thay vì tốn tiền quảng cáo ngoài đường.
-  + Checklist hành động:
+  + Checklist hành động (Sử dụng đúng format '- [ ]' cho từng đầu việc):
     - [ ] Triển khai chương trình khách hàng thân thiết siêu đơn giản (thẻ tích điểm vật lý / Zalo OA).
     - [ ] Tinh chỉnh menu loại bỏ món bán chậm, đẩy mạnh nhóm món có biên lợi nhuận cao nhất.
 

@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
-  "description": "Hồ sơ định phí động & Kinh tế vi mô mức chuẩn bình dân (Normal Scenario) cho 10 Mô hình kinh doanh và 20 Nhóm sản phẩm (MLAI Platform)",
+  "version": "1.2.0",
+  "description": "Hồ sơ định phí động & Kinh tế vi mô mức chuẩn bình dân (Normal Scenario) cho 10 Mô hình kinh doanh và 20 Nhóm sản phẩm (MLAI Platform) - Số lượng nhân viên (staff_count) đã tính cả chủ quán tham gia vận hành trực tiếp",
   "business_model_profiles": {
     "101": {
       "capex_ratio": 0.45,
@@ -39,14 +39,14 @@
       "utilities_note": "Hút mùi, quạt công nghiệp, trữ bia và tủ mát"
     },
     "105": {
-      "deposit_months": 1,
-      "capex_ratio": 0.35,
-      "min_capex": 18000000,
-      "max_capex": 45000000,
-      "staff_salary_per_person": 6000000,
+      "deposit_months": 0,
+      "capex_ratio": 0.50,
+      "min_capex": 8000000,
+      "max_capex": 25000000,
+      "staff_salary_per_person": 0,
       "staff_count": 1,
-      "utilities_cost": 1200000,
-      "utilities_note": "Điện tủ mát mini, máy dập nắp ly, sạc thiết bị"
+      "utilities_cost": 500000,
+      "utilities_note": "Điện thắp sáng, sạc pin thiết bị, bình gas mini, bao bì ly túi mang đi"
     },
     "106": {
       "capex_ratio": 0.35,
@@ -62,7 +62,7 @@
       "min_capex": 35000000,
       "max_capex": 120000000,
       "staff_salary_per_person": 6000000,
-      "staff_count": 1,
+      "staff_count": 2,
       "utilities_cost": 2500000,
       "utilities_note": "Đèn rọi sản phẩm, máy lạnh quầy thu ngân"
     },
@@ -80,7 +80,7 @@
       "min_capex": 85000000,
       "max_capex": 220000000,
       "staff_salary_per_person": 6000000,
-      "staff_count": 1,
+      "staff_count": 2,
       "utilities_cost": 7000000,
       "utilities_note": "Điện 3 pha sấy công nghiệp, nước sinh hoạt và nước giặt xả"
     },

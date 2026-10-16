@@ -119,18 +119,8 @@ def detect_copilot_intent(query: str) -> Dict[str, Any]:
         v_score = scores.get(b_id, 0.0)
         p_boost = 0.09 if b_id in pattern_matches else 0.0
 
-        # Nếu câu hỏi bắt đầu bằng "Nếu..." (kịch bản giả định What-If)
-        if b_id == "BRANCH_C" and re.match(r"^nếu\b", cleaned_query):
-            if not any(k in cleaned_query for k in [
-                "quay lại ngày đầu",
-                "phải chỉ ra",
-                "dừng toàn bộ hoạt động quảng cáo",
-                "loại bỏ toàn bộ các hỗ trợ thủ công",
-                "tự vận hành trơn tru"
-            ]):
-                p_boost += 0.20
-        # Nếu chứa "có nên" mà không bắt đầu bằng "Nếu"
-        elif b_id == "BRANCH_C" and re.search(r"có nên\b", cleaned_query):
+        # Nếu chứa "có nên" (cân nhắc quyết định chiến lược Nhánh C)
+        if b_id == "BRANCH_C" and re.search(r"có nên\b", cleaned_query):
             if not any(k in cleaned_query for k in ["đối thủ", "cắt lỗ ngay lập tức", "quay lại ngày đầu", "dừng toàn bộ hoạt động quảng cáo"]):
                 p_boost += 0.18
 

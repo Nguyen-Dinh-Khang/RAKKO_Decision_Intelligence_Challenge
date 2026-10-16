@@ -180,7 +180,11 @@ def classify_problems_by_anchor(
                 item["is_complex"] = False
         else:
             # Fallback heuristic nếu không có vector model: dựa vào severity
-            sev = item.get("severity", 2)
+            sev_raw = item.get("severity", 2)
+            try:
+                sev = int(sev_raw)
+            except (ValueError, TypeError):
+                sev = 3 if str(sev_raw).lower() in ("cao", "nghiem_trong", "high") else 2
             if sev >= 2:
                 item["difficulty"] = "complex"
                 item["difficulty_label"] = "Phức tạp / Chiến lược"
@@ -191,6 +195,7 @@ def classify_problems_by_anchor(
                 item["difficulty_label"] = "Tác nghiệp / Bề nổi"
                 item["action_recommendation"] = "Chỉ cần lập checklist & ghi nhớ để phòng tránh"
                 item["is_complex"] = False
+
 
         classified_problems.append(item)
 

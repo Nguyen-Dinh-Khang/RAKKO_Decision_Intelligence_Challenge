@@ -4,11 +4,11 @@ branch_competitive.py - Module Xử lý Chuyên biệt Nhánh 4: Phản công C�
 
 Chức năng:
 1. Chấm điểm 6 Module Chiến lược phản công cạnh tranh:
-   - Module 4.1: Hạ giá món đơn có kiểm soát (Controlled Unit Price Defense)
-   - Module 4.2: Combo bù trừ & Món mới (Bundle & Cross-Sell)
+   - Module 4.1: Hạ giá sản phẩm/dịch vụ đơn có kiểm soát (Controlled Unit Price Defense)
+   - Module 4.2: Combo bù trừ & Gói sản phẩm / dịch vụ mới (Bundle & Cross-Sell)
    - Module 4.3: Khắc chế điểm yếu đối thủ (Weakness Exploitation & Inversion)
    - Module 4.4: Khai phá tệp khách hàng mới (Flank Segment Pivot)
-   - Module 4.5: Nâng cấp Tiện ích & Trải nghiệm (Frictionless In-store Experience)
+   - Module 4.5: Nâng cấp Tiện ích & Trải nghiệm tại điểm bán (Frictionless In-store Experience)
    - Module 4.6: Khóa chân, giữ khách quen & Marketing (Retention & Loyalty)
 2. Công thức tính điểm tổng hợp chuẩn hóa:
    Total_Score_k = 0.35 * S_Intent^(k) + 0.65 * S_Feasibility^(k)

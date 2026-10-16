@@ -1,11 +1,11 @@
 {
   "MODULE_4_1": {
     "code": "MODULE_4_1",
-    "name": "Module 4.1: Hạ giá món đơn có kiểm soát",
+    "name": "Module 4.1: Hạ giá sản phẩm/dịch vụ đơn có kiểm soát",
     "english_name": "Controlled Unit Price Defense",
-    "badge_title": "📉 Module 4.1: Hạ giá Món đơn có kiểm soát",
+    "badge_title": "📉 Module 4.1: Hạ giá Sản phẩm/Dịch vụ đơn có kiểm soát",
     "badge_detail": "Tính toán biên sàn an toàn (margin_floor) và biên độ giảm giá tối đa (d_max) để không sa đà vào phá giá tự sát.",
-    "anchor": "Chiến lược phản công khi đối thủ bán phá giá rẻ hơn bằng cách hạ giá món đơn có kiểm soát, tính toán khoảng giảm giá an toàn tối đa d_max để không bị lỗ, xác định biên sàn lợi nhuận an toàn margin floor, đối thủ giảm giá sốc thì có nên giảm giá theo hay không, hạ giá món chính hay món phễu nhưng vẫn đảm bảo sống sót tài chính, không sa đà vào cuộc chiến giá tự sát, dư địa giảm giá và ngưỡng sàn hòa vốn.",
+    "anchor": "Chiến lược phản công khi đối thủ bán phá giá rẻ hơn bằng cách hạ giá món đơn hoặc sản phẩm/dịch vụ đơn có kiểm soát, tính toán khoảng giảm giá an toàn tối đa d_max để không bị lỗ, xác định biên sàn lợi nhuận an toàn margin floor, đối thủ giảm giá sốc thì có nên giảm giá theo hay không, hạ giá món chính hay sản phẩm phễu nhưng vẫn đảm bảo sống sót tài chính, không sa đà vào cuộc chiến giá tự sát, dư địa giảm giá và ngưỡng sàn hòa vốn.",
     "patterns": [
       "hạ giá món",
       "giảm giá món",
@@ -33,11 +33,11 @@
   },
   "MODULE_4_2": {
     "code": "MODULE_4_2",
-    "name": "Module 4.2: Combo bù trừ & Món mới",
+    "name": "Module 4.2: Combo bù trừ & Gói sản phẩm / dịch vụ mới",
     "english_name": "Bundle & Cross-Sell",
-    "badge_title": "🍔 Module 4.2: Combo Bù trừ & Món mới",
-    "badge_detail": "Thiết kế combo bán kèm món phụ có biên lãi cao để bù trừ món chính, kích thích tăng giá trị đơn hàng trung bình.",
-    "anchor": "Chiến lược combo bù trừ và bán chéo bán kèm món mới để phản đòn đối thủ, kết hợp món chính với món nước giải khát hoặc món ăn vặt có biên lợi nhuận cao, combo bữa sáng cà phê bánh mì xôi, tăng giá trị đơn hàng trung bình bill size mà không cần hạ giá món chính, thiết kế gói sản phẩm hời, upsell bán chéo cross-sell món phụ bù trừ lợi nhuận, tung món mới trong combo.",
+    "badge_title": "🎁 Module 4.2: Combo Bù trừ & Gói Sản phẩm/Dịch vụ mới",
+    "badge_detail": "Thiết kế combo bán kèm sản phẩm/dịch vụ phụ có biên lãi cao để bù trừ sản phẩm chính, kích thích tăng giá trị đơn hàng trung bình.",
+    "anchor": "Chiến lược combo bù trừ và bán chéo bán kèm gói sản phẩm / dịch vụ mới để phản đòn đối thủ, kết hợp sản phẩm dịch vụ chính với mặt hàng hoặc dịch vụ gia tăng có biên lợi nhuận cao, tăng giá trị đơn hàng trung bình bill size mà không cần hạ giá sản phẩm chính, thiết kế gói sản phẩm hời, upsell bán chéo cross-sell món phụ bù trừ lợi nhuận, tung sản phẩm mới trong combo.",
     "patterns": [
       "combo",
       "bán kèm",
@@ -137,8 +137,8 @@
     "code": "MODULE_4_5",
     "name": "Module 4.5: Nâng cấp Tiện ích & Trải nghiệm",
     "english_name": "Frictionless In-store Experience",
-    "badge_title": "✨ Module 4.5: Tiện ích & Trải nghiệm tại quán",
-    "badge_detail": "Tăng cường tốc độ ra món dưới 60s, không gian máy lạnh mát rượi, wifi mạnh, ổ điện, bãi xe miễn phí và thái độ chu đáo.",
+    "badge_title": "✨ Module 4.5: Tiện ích & Trải nghiệm tại điểm bán",
+    "badge_detail": "Tăng cường tốc độ phục vụ, không gian sạch sẽ thoáng mát, wifi mạnh, tiện ích thanh toán và thái độ chu đáo.",
     "anchor": "Chiến lược nâng cấp tiện ích và trải nghiệm dịch vụ khách hàng tại quán để vượt trội đối thủ, tối ưu quy trình ra món nhanh cam kết dưới 60 giây, đầu tư không gian máy lạnh mát rượi sạch sẽ thoáng mát, bố trí nhiều ổ cắm điện wifi mạnh bàn ghế nệm êm ái, bãi đỗ xe rộng rãi dắt xe miễn phí che mưa che nắng, nhà vệ sinh sạch sẽ thơm tho, thái độ phục vụ niềm nở cúi chào chu đáo tại bàn, trải nghiệm khách tại quán.",
     "patterns": [
       "trải nghiệm khách",

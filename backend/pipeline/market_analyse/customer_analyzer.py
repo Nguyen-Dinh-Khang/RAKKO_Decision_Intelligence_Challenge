@@ -113,36 +113,45 @@ def analyze_target_customer(
 ) -> Dict[str, Any]:
     """
     Truy vấn DB5 (market_segments) kết hợp nhóm tuổi và danh mục món do client gửi.
+    - Món đầu tiên trong product_ids được định vị là MÓN CHỦ LỰC (Core Product):
+      Định hình giá bán mục tiêu, đối thủ trực tiếp và khung giờ vàng cốt lõi.
+    - Các món tiếp theo (nếu có) được định vị là MÓN BÁN KÈM (Cross-sell / Add-on):
+      Khai thác khung giờ phụ và hành vi bổ trợ, không làm loãng dải giá món chính.
     Tính dải giá khả thi đã nhân hệ số thu nhập DB1.
     """
     if db is None:
         db = get_db()
 
     primary_age, age_tag = _extract_primary_age_tag(demographics)
-    clean_prods = [int(p) for p in product_ids]
+    clean_prods = [int(p) for p in product_ids] if product_ids else []
 
+    primary_prod = clean_prods[0] if clean_prods else 201
+    secondary_prods = clean_prods[1:] if len(clean_prods) > 1 else []
+
+    # 1. Tìm bản ghi DB5 cho MÓN CHỦ LỰC (Primary Product)
     segment_doc = None
     if db is not None:
         try:
-            # Query DB5: {"tag_ids": {"$all": [age_tag], "$in": clean_prods}}
+            # Ưu tiên tuyệt đối tìm đúng cặp (age_tag, primary_prod)
             cursor = db["market_segments"].find({
-                "tag_ids": {
-                    "$all": [age_tag],
-                    "$in": clean_prods
-                }
+                "tag_ids": {"$all": [age_tag, primary_prod]}
             })
             docs = list(cursor)
             if docs:
-                # Ưu tiên bản ghi có interest cao nhất
                 segment_doc = max(docs, key=lambda d: float(d.get("interest", 0.0) or 0.0))
             else:
-                # Fallback: tìm theo age_tag
-                fallback_cursor = db["market_segments"].find({"tag_ids": age_tag})
-                f_docs = list(fallback_cursor)
-                if f_docs:
-                    segment_doc = f_docs[0]
+                # Fallback 1: Tìm theo primary_prod
+                p_docs = list(db["market_segments"].find({"tag_ids": primary_prod}))
+                if p_docs:
+                    segment_doc = max(p_docs, key=lambda d: float(d.get("interest", 0.0) or 0.0))
+                else:
+                    # Fallback 2: Tìm theo age_tag
+                    fallback_cursor = db["market_segments"].find({"tag_ids": age_tag})
+                    f_docs = list(fallback_cursor)
+                    if f_docs:
+                        segment_doc = f_docs[0]
         except Exception as e:
-            logger.warning(f"[!] Lỗi truy vấn DB5 trong customer_analyzer: {e}")
+            logger.warning(f"[!] Lỗi truy vấn DB5 (Món chính) trong customer_analyzer: {e}")
 
     # Giá trị mặc định nếu CSDL không có
     raw_time = "06:30 - 08:30"
@@ -191,8 +200,68 @@ def analyze_target_customer(
 
     adj_min_price = raw_min_price * factor
     adj_max_price = raw_max_price * factor
-
     price_str = f"{int(adj_min_price):,}đ - {int(adj_max_price):,}đ".replace(",", ".")
+
+    # 2. Xử lý MÓN BÁN KÈM / BỔ TRỢ (Secondary Products) nếu có
+    secondary_insights = None
+    if db is not None and secondary_prods:
+        try:
+            sec_pid = secondary_prods[0]
+            sec_cursor = db["market_segments"].find({
+                "tag_ids": {"$all": [age_tag, sec_pid]}
+            })
+            s_docs = list(sec_cursor)
+            sec_doc = s_docs[0] if s_docs else None
+            if not sec_doc:
+                s_fb = list(db["market_segments"].find({"tag_ids": sec_pid}))
+                if s_fb:
+                    sec_doc = s_fb[0]
+
+            if sec_doc:
+                s_time_data = sec_doc.get("peak_hours") or sec_doc.get("time")
+                s_time = "15:30 - 22:30"
+                if isinstance(s_time_data, list):
+                    s_parts = [
+                        f"{item.get('start', '')} - {item.get('end', '')}"
+                        for item in s_time_data
+                        if isinstance(item, dict) and "start" in item and "end" in item
+                    ]
+                    if s_parts:
+                        s_time = " & ".join(s_parts)
+                elif isinstance(s_time_data, str) and s_time_data.strip():
+                    s_time = s_time_data.strip()
+
+                s_interest = float(sec_doc.get("interest", 0.8) or 0.8)
+                s_behavior = (
+                    sec_doc.get("behavior") or
+                    sec_doc.get("demand") or
+                    sec_doc.get("description") or
+                    "Nhu cầu mua kèm, giải khát / ăn vặt bổ trợ"
+                )
+                s_pr = sec_doc.get("price_range")
+                s_min_p, s_max_p = 15000.0, 30000.0
+                if isinstance(s_pr, list) and len(s_pr) >= 2:
+                    s_min_p, s_max_p = float(s_pr[0]), float(s_pr[1])
+                elif isinstance(s_pr, dict):
+                    s_min_p = float(s_pr.get("min", s_min_p))
+                    s_max_p = float(s_pr.get("max", s_max_p))
+
+                s_adj_min = s_min_p * factor
+                s_adj_max = s_max_p * factor
+                s_price_str = f"{int(s_adj_min):,}đ - {int(s_adj_max):,}đ".replace(",", ".")
+
+                secondary_insights = {
+                    "product_id": sec_pid,
+                    "time": s_time,
+                    "price": s_price_str,
+                    "price_min": s_adj_min,
+                    "price_max": s_adj_max,
+                    "interest": round(s_interest, 2),
+                    "behavior": s_behavior,
+                    "segment_id": str(sec_doc["_id"]) if "_id" in sec_doc else None
+                }
+        except Exception as e:
+            logger.warning(f"[!] Lỗi truy vấn DB5 (Món phụ) trong customer_analyzer: {e}")
 
     return {
         "time": raw_time,
@@ -203,6 +272,8 @@ def analyze_target_customer(
         "behavior": raw_behavior,
         "primary_age": primary_age,
         "age_tag": age_tag,
+        "primary_product_id": primary_prod,
+        "secondary_insights": secondary_insights,
         "segment_id": str(segment_doc["_id"]) if (segment_doc and "_id" in segment_doc) else None
     }
 

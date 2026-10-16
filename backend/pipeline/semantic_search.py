@@ -19,7 +19,7 @@ import logging
 import numpy as np
 from typing import Dict, List, Any, Optional
 from ..database import get_db
-from ..config import EMBEDDING_MODEL, DEVICE
+from ..config import EMBEDDING_MODEL, EMBEDDING_QUANTIZATION, DEVICE
 
 logger = logging.getLogger(__name__)
 
@@ -28,26 +28,60 @@ _embedding_model = None
 
 
 def get_embedding_model():
-    """Tải và khởi tạo mô hình BAAI/bge-m3 (Singleton)."""
+    """Tải và khởi tạo mô hình BAAI/bge-m3 hỗ trợ Quantization (Singleton) và Fallback Local."""
     global _embedding_model
     if _embedding_model is not None:
         return _embedding_model
 
     try:
         import torch
+    except Exception as torch_err:
+        logger.error(f"[!] Lỗi nạp thư viện PyTorch (torch): {torch_err}. Vui lòng kiểm tra môi trường Python trên server.", exc_info=True)
+        return None
+
+    try:
         from sentence_transformers import SentenceTransformer
 
-        # Tự động phát hiện GPU CUDA
-        target_device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"[*] Đang nạp mô hình Embedding '{EMBEDDING_MODEL}' lên [{target_device.upper()}]...")
+        # Tự động phát hiện GPU CUDA, fallback an toàn sang CPU nếu không có hoặc CUDA lỗi
+        target_device = "cpu"
+        if str(DEVICE).lower() == "cuda" and torch.cuda.is_available():
+            target_device = "cuda"
+
+        quant_mode = (EMBEDDING_QUANTIZATION or "fp16").lower()
+        logger.info(f"[*] Đang nạp mô hình Embedding '{EMBEDDING_MODEL}' (Quantization: {quant_mode}) lên [{target_device.upper()}]...")
         start_time = time.time()
-        
-        _embedding_model = SentenceTransformer(EMBEDDING_MODEL, device=target_device)
+
+        model_kwargs = {}
+        if target_device == "cuda" and quant_mode in ("fp16", "half"):
+            # FP16 Half-precision quantization: tiết kiệm 50% VRAM (~1.1GB) và tăng tốc suy luận trên GPU RTX 2080 Ti
+            model_kwargs["torch_dtype"] = torch.float16
+
+        try:
+            _embedding_model = SentenceTransformer(EMBEDDING_MODEL, device=target_device, model_kwargs=model_kwargs)
+        except Exception as load_err:
+            # Fallback nếu model_kwargs không tương thích hoặc lỗi nạp FP16
+            if target_device == "cuda":
+                logger.warning(f"[!] Lỗi khi nạp FP16 trên CUDA ({load_err}), thử lại chế độ FP32 chuẩn...")
+                _embedding_model = SentenceTransformer(EMBEDDING_MODEL, device=target_device)
+            else:
+                raise load_err
+
+        # Nếu chạy trên CPU (Local Fallback) và yêu cầu quantization INT8
+        if target_device == "cpu" and quant_mode == "int8":
+            try:
+                _embedding_model = torch.quantization.quantize_dynamic(
+                    _embedding_model, {torch.nn.Linear}, dtype=torch.qint8
+                )
+                logger.info("[✓] Đã áp dụng Dynamic INT8 Quantization cho CPU!")
+            except Exception as q_err:
+                logger.debug(f"[!] Dynamic quantization trên CPU: {q_err}")
+
         logger.info(f"[✓] Nạp mô hình Embedding hoàn tất trong {time.time() - start_time:.2f}s!")
         return _embedding_model
     except Exception as e:
-        logger.error(f"[!] Không thể tải mô hình embedding: {e}")
+        logger.error(f"[!] Không thể tải mô hình embedding: {e}", exc_info=True)
         return None
+
 
 
 def cosine_similarity(vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -178,26 +212,74 @@ class SemanticSearchEngine:
         self,
         product_ids: Optional[List[int]] = None,
         tag_filter: Optional[int] = None,
+        customer_segment_ids: Optional[List[int]] = None,
         top_k: int = 2
     ) -> List[Dict[str, Any]]:
         """
         Lọc dữ liệu DB5 (market_segments) thuần túy theo Tag IDs và xếp hạng theo độ quan tâm (Interest).
-        Vì DB5 được thiết kế chuyên biệt để phân tích hành vi theo mã món (2xx) và phân khúc độ tuổi (3xx),
-        không sử dụng vector embedding để tối ưu tốc độ và độ chuẩn xác danh mục.
+        Đồng bộ phân khúc khách hàng chủ lực (301-304) từ Day 0 để ưu tiên đúng nhóm khách hàng mục tiêu của quán.
+        Thứ tự ưu tiên:
+        1. Khớp chính xác cả đối tượng khách và món: [customer_segment_id, primary_product_id].
+        2. Tệp khách hàng chủ lực kết hợp các sản phẩm liên quan.
+        3. Tầng sản phẩm: [product_ids].
+        4. Fallback: Lấy các phân khúc có interest cao nhất.
         """
         coll = self.db["market_segments"]
         records: List[Dict[str, Any]] = []
+        seen_ids = set()
 
-        # Tầng 1: Lọc theo mã món (product_ids, 201 - 220)
-        if product_ids and len(product_ids) > 0:
-            clean_pids = [int(pid) for pid in product_ids if pid]
-            if clean_pids:
-                cursor = coll.find({"tag_ids": {"$in": clean_pids}}).sort("interest", -1)
-                records = list(cursor)
+        clean_pids = [int(pid) for pid in product_ids if pid] if product_ids else []
+        clean_sids = [int(sid) for sid in customer_segment_ids if sid] if customer_segment_ids else []
 
-        # Tầng 2: Nếu chưa có sản phẩm hoặc không tìm thấy, lấy các phân khúc có interest cao nhất
-        if not records:
-            records = list(coll.find({}).sort("interest", -1).limit(top_k))
+        # Tầng 1: Ưu tiên tuyệt đối khớp cả Customer Segment ID và Product ID
+        if clean_sids and clean_pids:
+            for sid in clean_sids:
+                for pid in clean_pids:
+                    matched = list(coll.find({"tag_ids": {"$all": [sid, pid]}}).sort("interest", -1))
+                    for doc in matched:
+                        d_id = str(doc.get("_id"))
+                        if d_id not in seen_ids:
+                            seen_ids.add(d_id)
+                            records.append(doc)
+                            if len(records) >= top_k:
+                                break
+                    if len(records) >= top_k:
+                        break
+                if len(records) >= top_k:
+                    break
+
+        # Tầng 2: Nếu chưa đủ và có customer_segment_ids, quét theo phân khúc khách hàng đó
+        if len(records) < top_k and clean_sids:
+            seg_cursor = coll.find({"tag_ids": {"$in": clean_sids}}).sort("interest", -1)
+            for doc in seg_cursor:
+                d_id = str(doc.get("_id"))
+                if d_id not in seen_ids:
+                    seen_ids.add(d_id)
+                    records.append(doc)
+                    if len(records) >= top_k:
+                        break
+
+        # Tầng 3: Nếu chưa đủ, lọc theo mã món (product_ids, 201 - 220)
+        if len(records) < top_k and clean_pids:
+            prod_cursor = coll.find({"tag_ids": {"$in": clean_pids}}).sort("interest", -1)
+            for doc in prod_cursor:
+                d_id = str(doc.get("_id"))
+                if d_id not in seen_ids:
+                    seen_ids.add(d_id)
+                    records.append(doc)
+                    if len(records) >= top_k:
+                        break
+
+        # Tầng 4: Nếu vẫn chưa đủ, lấy các phân khúc có interest cao nhất
+        if len(records) < top_k:
+            fallback_cursor = coll.find({}).sort("interest", -1).limit(top_k * 2)
+            for doc in fallback_cursor:
+                d_id = str(doc.get("_id"))
+                if d_id not in seen_ids:
+                    seen_ids.add(d_id)
+                    records.append(doc)
+                    if len(records) >= top_k:
+                        break
 
         cleaned_records = []
         for doc in records[:top_k]:

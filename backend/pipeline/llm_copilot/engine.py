@@ -17,21 +17,21 @@ import json
 import logging
 import requests
 from typing import Dict, List, Any, Optional, Generator
-from ...config import OLLAMA_BASE_URL, LLM_MODEL
+from ...config import OLLAMA_BASE_URL, LLM_MODEL, NUM_CTX
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Bạn là Trợ lý Cố vấn Chiến thuật Đồng hành (Tactical Co-pilot) cho chủ quán F&B và Bán lẻ thực chiến tại Việt Nam.
+SYSTEM_PROMPT = """Bạn là Trợ lý Cố vấn Chiến thuật Đồng hành (Tactical Co-pilot) cho Hộ kinh doanh Bán lẻ & Dịch vụ Đời sống thực chiến tại Việt Nam.
 Phong cách phản hồi:
 - Trực diện, sắc bén, thực tế và gãy gọn; nói thẳng vào nguyên nhân và hành động cụ thể, tuyệt đối không nói lý thuyết sáo rỗng.
-- Văn phong tự nhiên, chân thành, tôn trọng và đồng hành cùng chủ quán.
+- Văn phong tự nhiên, chân thành, tôn trọng và đồng hành cùng chủ cơ sở.
 - TUYỆT ĐỐI KHÔNG xưng hô gượng gạo hay đóng vai bất kỳ nhân vật hư cấu nào.
-- TUYỆT ĐỐI KHÔNG dùng các câu phán xét gượng gạo hay gán nhãn tiêu cực cho chủ quán. Hãy mở đầu tự nhiên, điềm tĩnh và đi thẳng vào phân tích thực tế của quán (ví dụ: "Với tình huống này của quán, điểm mấu chốt nằm ở...", "Khi gặp trường hợp này, giải pháp ưu tiên là...").
-- Dùng xưng hô lịch sự, gần gũi: "chủ quán" hoặc "bạn".
+- TUYỆT ĐỐI KHÔNG dùng các câu phán xét gượng gạo hay gán nhãn tiêu cực cho người kinh doanh. Hãy mở đầu tự nhiên, điềm tĩnh và đi thẳng vào phân tích thực tế của cơ sở (ví dụ: "Với tình huống này của bạn, điểm mấu chốt nằm ở...", "Khi gặp trường hợp này, giải pháp ưu tiên là...").
+- Dùng xưng hô lịch sự, gần gũi: "bạn" hoặc "chủ cơ sở" (hoặc "chủ quán" nếu là mô hình ăn uống).
 
 NGUYÊN TẮC HOẠT ĐỘNG BẮT BUỘC:
 1. CĂN CỨ VÀO SỐ LIỆU ĐƯỢC GIAO: Chỉ lập luận trên dữ liệu đối thủ, nhân khẩu học và bài học trong CONTEXT. Tuyệt đối không bịa đặt số liệu sách vở.
-2. TẬP TRUNG TUYỆT ĐỐI VÀO MẶT HÀNG CỦA NGƯỜI DÙNG: Áp dụng bài học đúng vào ngành hàng và sản phẩm chủ quán đang kinh doanh.
+2. TẬP TRUNG TUYỆT ĐỐI VÀO MẶT HÀNG CỦA NGƯỜI DÙNG: Áp dụng bài học đúng vào ngành hàng và sản phẩm/dịch vụ người dùng đang kinh doanh.
 3. NÓI RÕ CON SỐ & HÀNH ĐỘNG CỤ THỂ: Không khuyên chung chung kiểu "cần marketing", phải nói rõ ví dụ như "làm combo giữ giá và xuất đơn dưới 60 giây".
 4. TRẢ LỜI ĐÚNG TRỌNG TÂM CẤU TRÚC:
    - Nếu là Thẩm định ý tưởng (Day 0, Runway > 0): Đủ 5 phần (Dòng tiền, Đối thủ 1km, Đòn tấn công 3 mũi, Bài học rủi ro & kinh nghiệm, Chiến lược ngắn - dài hạn).
@@ -44,111 +44,142 @@ NGUYÊN TẮC HOẠT ĐỘNG BẮT BUỘC:
 
 
 class LLMCopilot:
-    """Class điều phối suy luận với mô hình Qwen3.5 4B qua Ollama."""
+    """Class điều phối suy luận với mô hình Qwen3.5 4B qua Ollama (hỗ trợ Server & Local Fallback)."""
 
     def __init__(self):
-        raw_url = OLLAMA_BASE_URL.rstrip('/')
-        # Ưu tiên sử dụng IPv4 127.0.0.1 để tránh lỗi phân giải IPv6/từ chối cổng trên Windows
-        if "localhost" in raw_url:
-            raw_url = raw_url.replace("localhost", "127.0.0.1")
-        self.api_url = f"{raw_url}/api/generate"
         self.model = LLM_MODEL
+        self.num_ctx = NUM_CTX
+        self._active_url: Optional[str] = None
+
+    def _get_target_urls(self) -> List[str]:
+        """Tự động sinh danh sách URL ưu tiên và fallback chéo giữa Server (11435) và Local (11434)."""
+        raw_url = OLLAMA_BASE_URL.rstrip('/')
+        candidates = [raw_url]
+
+        # Tự động hỗ trợ Fallback chéo giữa cổng 11435 (Server) và 11434 (Local mặc định)
+        if ":11435" in raw_url:
+            candidates.append(raw_url.replace(":11435", ":11434"))
+        elif ":11434" in raw_url:
+            candidates.append(raw_url.replace(":11434", ":11435"))
+        else:
+            candidates.extend(["http://127.0.0.1:11435", "http://127.0.0.1:11434"])
+
+        urls = []
+        # Ưu tiên URL đang kết nối tốt trước đó
+        if self._active_url and self._active_url not in urls:
+            urls.append(self._active_url)
+
+        for c in candidates:
+            # Ưu tiên IPv4 127.0.0.1 để tránh lỗi phân giải IPv6/từ chối cổng trên Windows
+            ipv4_url = c.replace("localhost", "127.0.0.1") + "/api/generate"
+            named_url = c.replace("127.0.0.1", "localhost") + "/api/generate"
+            for u in (ipv4_url, named_url):
+                if u not in urls:
+                    urls.append(u)
+        return urls
 
     def _call_ollama(self, prompt: str, temperature: float = 0.3, system: Optional[str] = None) -> str:
         """Gửi request tới Ollama HTTP API và nhận câu trả lời đầy đủ dạng text (đồng bộ)."""
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "system": system or SYSTEM_PROMPT,
-            "stream": False,
-            "think": False,
-            "options": {
-                "temperature": temperature,
-                "top_p": 0.9,
-                "num_ctx": 12288,  # Kích thước Context Window đầu vào
-                "num_predict": 3500  # Ngưỡng token đầu ra tối đa để không bị ngắt giữa chừng
-            }
-        }
-        logger.info(f"[*] Đang gửi prompt tới Ollama ({self.model})...")
-
-        # Thử 127.0.0.1 trước, nếu lỗi thì thử localhost
-        urls_to_try = [self.api_url]
-        if "127.0.0.1" in self.api_url:
-            urls_to_try.append(self.api_url.replace("127.0.0.1", "localhost"))
-        elif "localhost" in self.api_url:
-            urls_to_try.append(self.api_url.replace("localhost", "127.0.0.1"))
+        urls_to_try = self._get_target_urls()
+        ctx_to_try = [self.num_ctx]
+        # Fallback context window nếu 20480 quá tải trên máy tính local ít VRAM
+        if self.num_ctx > 8192:
+            ctx_to_try.append(8192)
 
         last_error = None
-        for target_url in urls_to_try:
-            try:
-                response = requests.post(target_url, json=payload, timeout=180)
-                if response.status_code == 200:
-                    result = response.json()
-                    return result.get("response", "").strip()
-                else:
-                    logger.error(f"[!] Ollama ({target_url}) trả về mã lỗi: {response.status_code} - {response.text}")
-            except requests.exceptions.RequestException as e:
-                last_error = e
-                logger.warning(f"[!] Thử kết nối Ollama tại {target_url} thất bại: {e}")
-                continue
+        for current_ctx in ctx_to_try:
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system or SYSTEM_PROMPT,
+                "stream": False,
+                "think": False,
+                "options": {
+                    "temperature": temperature,
+                    "top_p": 0.9,
+                    "num_ctx": current_ctx,  # Kích thước Context Window (20480 trên GPU, fallback 8192)
+                    "num_predict": 3500
+                }
+            }
+            logger.info(f"[*] Đang gửi prompt tới Ollama ({self.model}, num_ctx={current_ctx})...")
+
+            for target_url in urls_to_try:
+                try:
+                    response = requests.post(target_url, json=payload, timeout=180)
+                    if response.status_code == 200:
+                        self._active_url = target_url
+                        result = response.json()
+                        return result.get("response", "").strip()
+                    else:
+                        logger.warning(f"[!] Ollama ({target_url}) trả về mã lỗi: {response.status_code} - {response.text[:200]}")
+                except requests.exceptions.RequestException as e:
+                    last_error = e
+                    continue
 
         logger.error(f"[!] Toàn bộ kết nối tới Ollama thất bại. Lỗi cuối: {last_error}")
         return (
-            "⚠️ Hệ thống AI Copilot tạm thời chưa kết nối được tới máy chủ LLM Ollama (cổng 11434). "
-            "Vui lòng đảm bảo ứng dụng Ollama đã được khởi động và mô hình 'qwen3.5:4b' đã sẵn sàng trên máy."
+            "⚠️ Hệ thống AI Copilot tạm thời chưa kết nối được tới máy chủ LLM Ollama. "
+            "Vui lòng đảm bảo ứng dụng Ollama đã được khởi động (cổng 11435 trên server hoặc 11434 local) "
+            f"và mô hình '{self.model}' đã sẵn sàng trên máy."
         )
 
     def _stream_ollama(self, prompt: str, temperature: float = 0.25, system: Optional[str] = None) -> Generator[str, None, None]:
         """Gửi request tới Ollama HTTP API và nhận phản hồi dòng token-by-token (SSE)."""
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "system": system or SYSTEM_PROMPT,
-            "stream": True,
-            "think": False,
-            "options": {
-                "temperature": temperature,
-                "top_p": 0.9,
-                "num_ctx": 12288,
-                "num_predict": 3500
-            }
-        }
-        logger.info(f"[*] Bắt đầu streaming từ Ollama ({self.model})...")
-
-        urls_to_try = [self.api_url]
-        if "127.0.0.1" in self.api_url:
-            urls_to_try.append(self.api_url.replace("127.0.0.1", "localhost"))
-        elif "localhost" in self.api_url:
-            urls_to_try.append(self.api_url.replace("localhost", "127.0.0.1"))
+        urls_to_try = self._get_target_urls()
+        ctx_to_try = [self.num_ctx]
+        if self.num_ctx > 8192:
+            ctx_to_try.append(8192)
 
         connected = False
-        for target_url in urls_to_try:
-            try:
-                with requests.post(target_url, json=payload, stream=True, timeout=180) as response:
-                    if response.status_code != 200:
-                        continue
-                    connected = True
-                    for line in response.iter_lines(decode_unicode=True):
-                        if line:
-                            try:
-                                chunk_data = json.loads(line)
-                                token = chunk_data.get("response", "")
-                                if token:
-                                    yield token
-                                if chunk_data.get("done", False):
-                                    break
-                            except Exception:
-                                continue
-                    return
-            except Exception as e:
-                logger.warning(f"[!] Thử stream Ollama tại {target_url} thất bại: {e}")
-                continue
+        for current_ctx in ctx_to_try:
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system or SYSTEM_PROMPT,
+                "stream": True,
+                "think": False,
+                "options": {
+                    "temperature": temperature,
+                    "top_p": 0.9,
+                    "num_ctx": current_ctx,
+                    "num_predict": 3500
+                }
+            }
+            logger.info(f"[*] Bắt đầu streaming từ Ollama ({self.model}, num_ctx={current_ctx})...")
+
+            for target_url in urls_to_try:
+                try:
+                    with requests.post(target_url, json=payload, stream=True, timeout=180) as response:
+                        if response.status_code != 200:
+                            continue
+                        self._active_url = target_url
+                        connected = True
+                        for line in response.iter_lines(decode_unicode=True):
+                            if line:
+                                try:
+                                    chunk_data = json.loads(line)
+                                    token = chunk_data.get("response", "")
+                                    if token:
+                                        yield token
+                                    if chunk_data.get("done", False):
+                                        break
+                                except Exception:
+                                    continue
+                        return
+                except Exception as e:
+                    logger.warning(f"[!] Thử stream Ollama tại {target_url} thất bại: {e}")
+                    continue
+
+            if connected:
+                break
 
         if not connected:
             yield (
-                "\n\n⚠️ Không thể kết nối với máy chủ AI Ollama (cổng 11434). "
-                "Vui lòng kiểm tra ứng dụng Ollama đã được khởi động với mô hình 'qwen3.5:4b'."
+                "\n\n⚠️ Không thể kết nối với máy chủ AI Ollama. "
+                "Vui lòng kiểm tra dịch vụ Ollama đã được khởi động (cổng 11435 trên server hoặc 11434 local) "
+                f"với mô hình '{self.model}'."
             )
+
 
     def evaluate_feasibility(
         self,

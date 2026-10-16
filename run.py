@@ -24,7 +24,7 @@ if str(PARENT_DIR) not in sys.path:
     sys.path.insert(0, str(PARENT_DIR))
 
 import uvicorn
-from backend.config import PORT, HOST, LLM_MODEL
+from backend.config import PORT, HOST, LLM_MODEL, NUM_CTX, EMBEDDING_QUANTIZATION, DEVICE
 
 if __name__ == "__main__":
     print("\n" + "=" * 75)
@@ -33,9 +33,10 @@ if __name__ == "__main__":
     print(f"👉 API Documentation (Swagger):   http://localhost:{PORT}/docs")
     print(f"👉 Trạng thái hệ thống:           http://localhost:{PORT}/api/health")
     print(f"🗄️  Cơ sở dữ liệu:                 MongoDB Atlas (5 CSDL)")
-    print(f"🧠 Mô hình Vector Embedding:      BAAI/bge-m3 (GPU CUDA)")
-    print(f"🤖 Mô hình Trợ lý Suy luận:       {LLM_MODEL} (Ollama Local)")
+    print(f"🧠 Mô hình Vector Embedding:      BAAI/bge-m3 ({EMBEDDING_QUANTIZATION.upper()} trên {DEVICE.upper()})")
+    print(f"🤖 Mô hình Trợ lý Suy luận:       {LLM_MODEL} (Ollama | Context Window: {NUM_CTX})")
     print("=" * 75)
     print("Nhấn Ctrl + C để dừng máy chủ bất kỳ lúc nào.\n")
 
     uvicorn.run("backend.main:app", host=HOST, port=PORT, reload=False)
+

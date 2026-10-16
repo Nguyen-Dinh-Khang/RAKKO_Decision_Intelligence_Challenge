@@ -48,12 +48,15 @@ from .pipeline.stress_test.config import DEFAULT_RENT_BY_MODEL
 from .pipeline.tactical_playbook import TacticalPlaybookEngine, run_tactical_playbook
 from .pipeline.semantic_search import SemanticSearchEngine
 from .pipeline.llm_copilot import LLMCopilot
-from .pipeline.copilot_router import detect_copilot_intent
+from .pipeline.copilot_router import detect_copilot_intent, get_branch_vectors
+from .pipeline.branch_strategic import get_branch_3_vectors
+from .pipeline.branch_competitive import get_branch_4_vectors
+from .pipeline.branch_diagnostic import get_branch_5_vectors
 
 # Khởi tạo FastAPI app
 app = FastAPI(
     title="MLAI Business Decision Co-pilot Platform",
-    description="Nền tảng Ra quyết định & Trợ lý Kinh doanh thực chiến F&B / Bán lẻ",
+    description="Nền tảng Ra quyết định & Trợ lý Kinh doanh thực chiến Hộ Bán lẻ & Dịch vụ Đời sống",
     version="3.0.0"
 )
 
@@ -76,6 +79,28 @@ semantic_search_engine = SemanticSearchEngine()
 llm_copilot = LLMCopilot()
 
 
+@app.on_event("startup")
+async def preload_embedding_cache():
+    """
+    Tối ưu hiệu năng Embedding Text mẫu:
+    Nạp toàn bộ BGE-M3 model và 4 bộ Anchor Vectors (Nhánh A-E, C, D, E) vào RAM Cache
+    ngay khi khởi động máy chủ để xóa bỏ hoàn toàn độ trễ cold-start cho người dùng.
+    """
+    logger.info("[*] [STARTUP] Bắt đầu nạp trước Anchor Vectors và BGE-M3 vào RAM...")
+    try:
+        vecs_main = get_branch_vectors()
+        logger.info(f"[+] [STARTUP] Đã nạp {len(vecs_main)} Anchor vectors cho 5 Nhánh chính (A-E).")
+        vecs_b3 = get_branch_3_vectors()
+        logger.info(f"[+] [STARTUP] Đã nạp {len(vecs_b3)} Anchor vectors cho Nhánh C (What-If).")
+        vecs_b4 = get_branch_4_vectors()
+        logger.info(f"[+] [STARTUP] Đã nạp {len(vecs_b4)} Anchor vectors cho Nhánh D (Cạnh tranh vi mô).")
+        vecs_b5 = get_branch_5_vectors()
+        logger.info(f"[+] [STARTUP] Đã nạp {len(vecs_b5)} Anchor vectors cho Nhánh E (Chẩn đoán).")
+        logger.info("[✓] [STARTUP] Hoàn tất nạp RAM cache Embedding thành công!")
+    except Exception as e:
+        logger.warning(f"[!] [STARTUP] Lỗi khi nạp trước cache embedding (sẽ nạp on-demand khi có request): {e}")
+
+
 # =====================================================================
 # PYDANTIC SCHEMAS (ĐẶC TẢ DỮ LIỆU ĐẦU VÀO)
 # =====================================================================
@@ -96,6 +121,7 @@ class CopilotChatRequest(BaseModel):
     address: Optional[str] = Field(None, description="Địa chỉ quán kinh doanh (tùy chọn để quét đối thủ vi mô)")
     coordinates: Optional[Dict[str, float]] = Field(None, description="Tọa độ {'lng': float, 'lat': float} (tùy chọn)")
     product_ids: Optional[List[int]] = Field(None, description="Danh sách mã sản phẩm bán (tùy chọn)")
+    customer_segment_ids: Optional[List[int]] = Field(None, description="Danh sách mã phân khúc khách hàng chủ đạo (301 - 304)")
     conversation_history: Optional[List[Dict[str, str]]] = Field(None, description="Lịch sử đối thoại trước đó")
     mode: Optional[str] = Field(None, description="Chế độ kiểm thử: 'part_1' (định tuyến 5 nhánh) hoặc 'full'")
 
@@ -125,6 +151,7 @@ class SaveStrategyRequest(BaseModel):
     staff_count: Optional[int] = Field(None, description="Số lượng nhân viên")
     avg_salary: Optional[int] = Field(None, description="Lương trung bình mỗi nhân viên (VNĐ/tháng)")
     customer_segment_ids: Optional[List[int]] = Field(None, description="Danh sách mã phân khúc khách hàng chủ đạo (301 - 304)")
+    selected_scenario: Optional[str] = Field("normal", description="Kịch bản được chọn để lưu: 'normal' hoặc 'premium'")
 
 
 
@@ -145,6 +172,24 @@ class MonthlyLogRequest(BaseModel):
     revenue: int = Field(..., description="Doanh thu thực tế (VNĐ)")
     cost: int = Field(..., description="Tổng chi phí thực tế đã bao gồm tiền nhà (VNĐ)")
     note: Optional[str] = Field("", description="Ghi chú sự kiện thực tế trong tháng")
+
+
+class SavePlaybookRequest(BaseModel):
+    """Dữ liệu lưu kế sách tác chiến (Tactical Playbook) theo mô hình Embedded"""
+    query: str = Field(..., description="Câu hỏi hoặc tình huống người dùng gặp phải")
+    branch_id: Optional[str] = Field("BRANCH_UNKNOWN", description="Mã nhánh tư duy (BRANCH_A -> E)")
+    branch_name: Optional[str] = Field("Tác chiến vận hành", description="Tên nhánh tư duy")
+    model_name: Optional[str] = Field("", description="Tên mô hình kinh doanh của quán")
+    strategy_id: Optional[str] = Field(None, description="Mã kế sách quán nếu có")
+    answer_markdown: str = Field(..., description="Nội dung giải pháp tác chiến định dạng Markdown từ Copilot")
+    title: Optional[str] = Field(None, description="Tiêu đề tóm tắt tình huống (nếu muốn đặt riêng)")
+    dialogue_script: Optional[str] = Field(None, description="Lời thoại mẫu thực chiến nếu có")
+    tasks: Optional[List[Dict[str, Any]]] = Field(None, description="Danh sách checklist đầu việc nếu đã có")
+
+
+class ToggleTaskRequest(BaseModel):
+    """Dữ liệu cập nhật trạng thái tick hoàn thành cho 1 task"""
+    is_completed: Optional[bool] = Field(None, description="Trạng thái hoàn thành mới (None để đảo ngược)")
 
 
 # =====================================================================
@@ -320,6 +365,10 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
         existing_doc.get("profile", {}).get("rent", 0) if (existing_doc and isinstance(existing_doc.get("profile"), dict)) else 0
     )
 
+    target_scenario = (req.selected_scenario or "normal").lower().strip()
+    if target_scenario not in ["normal", "premium"]:
+        target_scenario = "normal"
+
     # TỰ ĐỘNG LẤY DỮ LIỆU TỪ BỘ GIẢ LẬP (SIMULATION DATA) ĐỂ THIẾT LẬP PROFILE:
     # A. Nhân sự & Lương: Lấy tự động theo mô hình kinh doanh từ cấu hình giả lập (financial_profiles.json / stress_test)
     fin_profiles = load_financial_profiles().get("business_model_profiles", {})
@@ -329,22 +378,27 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
 
     # Nếu stress_test trong kết quả thẩm định có ghi nhận số nhân sự:
     stress_data = req.report_result.get("stress_test") if isinstance(req.report_result, dict) else []
-    if isinstance(stress_data, list) and len(stress_data) > 0 and isinstance(stress_data[0], dict):
-        raw_staff = stress_data[0].get("staff_count")
-        if raw_staff is not None:
-            try:
-                sim_staff_count = int(raw_staff)
-            except (ValueError, TypeError):
-                pass
+    chosen_scen = None
+    if isinstance(stress_data, list) and len(stress_data) > 0:
+        chosen_scen = next((s for s in stress_data if isinstance(s, dict) and s.get("scenario") == target_scenario), None)
+        if not chosen_scen:
+            chosen_scen = stress_data[0]
     elif isinstance(stress_data, dict):
-        raw_staff = stress_data.get("staff_count")
+        chosen_scen = stress_data
+
+    if chosen_scen and isinstance(chosen_scen, dict):
+        raw_staff = chosen_scen.get("staff_count")
         if raw_staff is not None:
             try:
                 sim_staff_count = int(raw_staff)
             except (ValueError, TypeError):
                 pass
 
-    # Bỏ +1 chủ quán ra: Số lượng nhân sự trong profile chỉ tính nhân viên làm cùng, không tính chủ quán
+        # Nếu chọn kịch bản Premium: Lương nhân viên tăng 25% theo PREMIUM_SALARY_MULTIPLIER
+        if target_scenario == "premium" and sim_avg_salary > 0:
+            sim_avg_salary = int(sim_avg_salary * 1.25)
+
+    # Bỏ 1 chủ quán ra khi lưu vào profile: Hồ sơ quán và công thức lương chỉ tính nhân viên làm cùng, không tính chủ quán
     sim_staff_count = max(0, sim_staff_count - 1)
 
     # B. Tệp khách hàng mục tiêu: Lấy tự động từ phân bổ độ tuổi dân cư khu vực 3km (demographics.age_distribution)
@@ -390,20 +444,17 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
         "avg_salary": sim_avg_salary,
         "customer_segment_ids": sim_seg_ids,
         "customer_segments": sim_seg_names,
+        "selected_scenario": target_scenario,
         "month_set": current_month_str
     }
 
 
     # 2. Khởi tạo Khối simulation_profile từ kết quả Thẩm định Day 0
-    # Lấy runway_months từ kết quả stress_test
-    stress_test = req.report_result.get("stress_test") if isinstance(req.report_result, dict) else []
+    # Lấy runway_months từ kịch bản được chọn
     runway_val = 5
     try:
-        if isinstance(stress_test, list) and len(stress_test) > 0 and isinstance(stress_test[0], dict):
-            raw_month = stress_test[0].get("month") if stress_test[0].get("month") is not None else stress_test[0].get("runway_months", 5.0)
-            runway_val = int(float(raw_month or 5.0))
-        elif isinstance(stress_test, dict):
-            raw_month = stress_test.get("month") if stress_test.get("month") is not None else stress_test.get("runway_months", 5.0)
+        if chosen_scen and isinstance(chosen_scen, dict):
+            raw_month = chosen_scen.get("month") if chosen_scen.get("month") is not None else chosen_scen.get("runway_months", 5.0)
             runway_val = int(float(raw_month or 5.0))
     except Exception:
         runway_val = 5
@@ -418,9 +469,11 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
 
     # Doanh thu mục tiêu ước tính (Target Monthly Revenue)
     # Ước lượng dựa trên tiền thuê và biên lãi
-    base_fixed_costs = init_rent + 15_000_000 if init_rent > 0 else 30_000_000
+    model_base_opex = 3_000_000 if int(req.model_id) == 105 else 15_000_000
+    base_fixed_costs = init_rent + model_base_opex
     target_rev = int((base_fixed_costs * 1.5) / (expected_margin / 100.0))
-    target_rev = max(40_000_000, round(target_rev / 1_000_000) * 1_000_000)
+    min_target_rev = 15_000_000 if int(req.model_id) == 105 else 40_000_000
+    target_rev = max(min_target_rev, round(target_rev / 1_000_000) * 1_000_000)
 
     simulation_data = {
         "target_monthly_revenue": target_rev,
@@ -444,6 +497,7 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
         "product_names": product_names,
         "customer_segment_ids": sim_seg_ids,
         "customer_segments": sim_seg_names,
+        "selected_scenario": target_scenario,
         "report_result": req.report_result,
         "profile": profile_data,
         "simulation_profile": simulation_data,
@@ -458,10 +512,11 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
         upsert=True
     )
     
-    logger.info(f"[✓] Đã lưu kế sách cho user '{user['username']}' tại '{strategy_doc['address']}'.")
+    scen_label = "Nâng cao (Premium)" if target_scenario == "premium" else "Thông thường (Normal)"
+    logger.info(f"[✓] Đã lưu kế sách ({scen_label}) cho user '{user['username']}' tại '{strategy_doc['address']}'.")
     return {
         "status": "success",
-        "message": "Đã lưu kế sách chiến lược thành công vào hồ sơ cá nhân của bạn!",
+        "message": f"Đã lưu kế sách chiến lược ({scen_label}) thành công vào hồ sơ cá nhân của bạn!",
         "strategy": {
             "address": strategy_doc["address"],
             "coordinates": strategy_doc["coordinates"],
@@ -471,6 +526,7 @@ def save_user_strategy(req: SaveStrategyRequest, authorization: Optional[str] = 
             "product_names": strategy_doc["product_names"],
             "customer_segment_ids": strategy_doc["customer_segment_ids"],
             "customer_segments": strategy_doc["customer_segments"],
+            "selected_scenario": strategy_doc["selected_scenario"],
             "profile": strategy_doc["profile"],
             "simulation_profile": strategy_doc["simulation_profile"],
             "monthly_logs": strategy_doc["monthly_logs"],
@@ -745,8 +801,15 @@ def evaluate_business_feasibility(req: FeasibilityRequest):
     try:
         logger.info(f"[*] Bắt đầu thẩm định cho địa chỉ: {req.address} | Vốn: {req.budget:,.0f}đ")
         
+        if req.budget <= 0:
+            raise HTTPException(status_code=400, detail="Số vốn đầu tư phải lớn hơn 0 VNĐ!")
+        if not req.product_ids:
+            raise HTTPException(status_code=400, detail="Vui lòng chọn ít nhất 1 sản phẩm kinh doanh!")
+
         # Mắt xích 1: Geocoding & Dân cư (DB1)
         lng, lat, display_addr = geocode_address(req.address)
+        if lng == 0 and lat == 0:
+            raise HTTPException(status_code=400, detail="Không thể định vị được địa chỉ này trên bản đồ. Vui lòng nhập địa chỉ rõ ràng hơn (VD: Tên đường, Phường/Xã, Quận/Huyện)!")
         demographics = spatial_engine.get_area_demographics(lng, lat)
 
         # Mắt xích 1b: Quét Đối thủ trong 1km (DB2)
@@ -806,7 +869,8 @@ def evaluate_business_feasibility(req: FeasibilityRequest):
         product_names = [tag_manager.get_tag_name(pid) for pid in req.product_ids]
         products_str = ", ".join(product_names)
 
-        rent_val = float(req.rent) if (req.rent is not None and req.rent >= 0) else float(DEFAULT_RENT_BY_MODEL.get(int(req.model_id), 10_000_000))
+        rent_val = float(req.rent) if (req.rent is not None and float(req.rent) >= 0) else float(DEFAULT_RENT_BY_MODEL.get(int(req.model_id), 10_000_000))
+
 
         form_summary = {
             "address": display_addr,
@@ -879,7 +943,9 @@ def evaluate_business_feasibility(req: FeasibilityRequest):
                 "id": cust_insights.get("segment_id"),
                 "time": cust_insights.get("time"),
                 "price": cust_insights.get("price"),
-                "behavior": cust_insights.get("behavior")
+                "behavior": cust_insights.get("behavior"),
+                "primary_product_id": cust_insights.get("primary_product_id"),
+                "secondary_insights": cust_insights.get("secondary_insights")
             } if cust_insights.get("segment_id") else None,
             "market_lessons": [
                 {
@@ -933,8 +999,15 @@ def evaluate_business_feasibility_stream(req: FeasibilityRequest):
     try:
         logger.info(f"[*] Bắt đầu thẩm định Streaming cho địa chỉ: {req.address} | Vốn: {req.budget:,.0f}đ")
         
+        if req.budget <= 0:
+            raise HTTPException(status_code=400, detail="Số vốn đầu tư phải lớn hơn 0 VNĐ!")
+        if not req.product_ids:
+            raise HTTPException(status_code=400, detail="Vui lòng chọn ít nhất 1 sản phẩm kinh doanh!")
+
         # Mắt xích 1: Geocoding & Dân cư (DB1)
         lng, lat, display_addr = geocode_address(req.address)
+        if lng == 0 and lat == 0:
+            raise HTTPException(status_code=400, detail="Không thể định vị được địa chỉ này trên bản đồ. Vui lòng nhập địa chỉ rõ ràng hơn (VD: Tên đường, Phường/Xã, Quận/Huyện)!")
         demographics = spatial_engine.get_area_demographics(lng, lat)
 
         # Mắt xích 1b: Quét Đối thủ trong 1km (DB2)
@@ -1058,7 +1131,8 @@ def evaluate_business_feasibility_stream(req: FeasibilityRequest):
         model_name = tag_manager.get_tag_name(req.model_id)
         product_names = [tag_manager.get_tag_name(pid) for pid in req.product_ids]
         products_str = ", ".join(product_names)
-        rent_val = float(req.rent) if (req.rent is not None and req.rent >= 0) else float(DEFAULT_RENT_BY_MODEL.get(int(req.model_id), 10_000_000))
+        rent_val = float(req.rent) if (req.rent is not None and float(req.rent) >= 0) else float(DEFAULT_RENT_BY_MODEL.get(int(req.model_id), 10_000_000))
+
 
         form_summary = {
             "address": display_addr,
@@ -1120,7 +1194,10 @@ def evaluate_business_feasibility_stream(req: FeasibilityRequest):
                     yield f"data: {json.dumps({'type': 'chunk', 'text': token}, ensure_ascii=False)}\n\n"
             except Exception as stream_err:
                 logger.error(f"[!] Lỗi stream LLM evaluate: {stream_err}")
-                yield f"data: {json.dumps({'type': 'chunk', 'text': f'\\n\\n[!] Lỗi sinh báo cáo AI: {str(stream_err)}'}, ensure_ascii=False)}\n\n"
+                err_msg = f"\n\n[!] Lỗi sinh báo cáo AI: {str(stream_err)}"
+                err_payload = json.dumps({"type": "chunk", "text": err_msg}, ensure_ascii=False)
+                yield f"data: {err_payload}\n\n"
+
 
             # Kết thúc dòng SSE
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
@@ -1144,13 +1221,30 @@ def _format_copilot_context_and_insights(
     competitors: List[Dict[str, Any]],
     problems: List[Dict[str, Any]],
     experiences: List[Dict[str, Any]],
-    market_segments: List[Dict[str, Any]]
+    market_segments: List[Dict[str, Any]],
+    customer_segments: Optional[List[str]] = None,
+    customer_segment_ids: Optional[List[int]] = None
 ) -> Tuple[str, Dict[str, int]]:
     """
     Chắt lọc và định dạng dữ liệu trực tiếp theo nhu cầu từng nhánh,
     không phụ thuộc vào distillation engine cũ.
+    Tận dụng sâu tệp khách hàng chủ lực từ Day 0 / Hồ sơ quán.
     """
     lines = []
+
+    # 0. Tệp khách hàng mục tiêu cốt lõi (Day 0 / Hồ sơ quán)
+    resolved_seg_names = list(customer_segments or [])
+    if not resolved_seg_names and customer_segment_ids:
+        resolved_seg_names = [tag_manager.get_tag_name(sid) for sid in customer_segment_ids if tag_manager.get_tag_name(sid)]
+
+    if resolved_seg_names:
+        seg_str = ", ".join(resolved_seg_names)
+        lines.append(f"### TỆP KHÁCH HÀNG MỤC TIÊU CHỦ LỰC (DAY 0 / HỒ SƠ QUÁN): {seg_str.upper()}")
+        lines.append(
+            f"- Nhóm khách hàng chủ lực: **{seg_str}**. Mọi đề xuất về giá bán, thiết kế combo món mồi, "
+            "khung giờ phục vụ và phong cách tư vấn phải phục vụ đúng nhu cầu và túi tiền của tệp khách này."
+        )
+        lines.append("")
 
     # 1. Đối thủ cạnh tranh DB2 (nếu có)
     if competitors:
@@ -1284,6 +1378,21 @@ def copilot_chat(req: CopilotChatRequest, authorization: Optional[str] = Header(
         product_ids = req.product_ids or (saved_strategy.get("product_ids") if saved_strategy else None) or []
         address = req.address or (saved_strategy.get("address") if saved_strategy else "")
         req_coords = req.coordinates or (saved_strategy.get("coordinates") if saved_strategy else None)
+
+        # Lấy thông tin Phân khúc khách hàng mục tiêu từ Day 0 / Hồ sơ quán
+        customer_segment_ids = (
+            req.customer_segment_ids
+            or (saved_strategy.get("customer_segment_ids") if saved_strategy else None)
+            or (saved_strategy.get("profile", {}).get("customer_segment_ids") if saved_strategy else None)
+            or []
+        )
+        customer_segments = (
+            (saved_strategy.get("customer_segments") if saved_strategy else None)
+            or (saved_strategy.get("profile", {}).get("customer_segments") if saved_strategy else None)
+            or []
+        )
+        if not customer_segments and customer_segment_ids:
+            customer_segments = [tag_manager.get_tag_name(sid) for sid in customer_segment_ids if tag_manager.get_tag_name(sid)]
 
         # Xác định tọa độ quán phục vụ việc quét đối thủ 1km
         lng, lat = 106.6578, 10.7725  # Tọa độ mặc định: Cổng ĐH Bách Khoa, Q10
@@ -1481,14 +1590,19 @@ def copilot_chat(req: CopilotChatRequest, authorization: Optional[str] = Header(
         market_segments = []
         if "DB5" in data_sources:
             market_segments = semantic_search_engine.search_market_segments(
-                product_ids=product_ids, tag_filter=model_id, top_k=2
+                product_ids=product_ids,
+                tag_filter=model_id,
+                customer_segment_ids=customer_segment_ids,
+                top_k=2
             )
 
         context_md, matched_insights = _format_copilot_context_and_insights(
             competitors=competitors,
             problems=problems,
             experiences=experiences,
-            market_segments=market_segments
+            market_segments=market_segments,
+            customer_segments=customer_segments,
+            customer_segment_ids=customer_segment_ids
         )
 
         # Bổ sung dữ liệu nhánh chuyên sâu vào context LLM
@@ -1567,6 +1681,21 @@ def copilot_chat_stream(req: CopilotChatRequest, authorization: Optional[str] = 
         product_ids = req.product_ids or (saved_strategy.get("product_ids") if saved_strategy else None) or []
         address = req.address or (saved_strategy.get("address") if saved_strategy else "")
         req_coords = req.coordinates or (saved_strategy.get("coordinates") if saved_strategy else None)
+
+        # Lấy thông tin Phân khúc khách hàng mục tiêu từ Day 0 / Hồ sơ quán
+        customer_segment_ids = (
+            req.customer_segment_ids
+            or (saved_strategy.get("customer_segment_ids") if saved_strategy else None)
+            or (saved_strategy.get("profile", {}).get("customer_segment_ids") if saved_strategy else None)
+            or []
+        )
+        customer_segments = (
+            (saved_strategy.get("customer_segments") if saved_strategy else None)
+            or (saved_strategy.get("profile", {}).get("customer_segments") if saved_strategy else None)
+            or []
+        )
+        if not customer_segments and customer_segment_ids:
+            customer_segments = [tag_manager.get_tag_name(sid) for sid in customer_segment_ids if tag_manager.get_tag_name(sid)]
 
         # Xác định tọa độ quán phục vụ việc quét đối thủ 1km
         lng, lat = 106.6578, 10.7725
@@ -1671,14 +1800,19 @@ def copilot_chat_stream(req: CopilotChatRequest, authorization: Optional[str] = 
         market_segments = []
         if "DB5" in data_sources:
             market_segments = semantic_search_engine.search_market_segments(
-                product_ids=product_ids, tag_filter=model_id, top_k=2
+                product_ids=product_ids,
+                tag_filter=model_id,
+                customer_segment_ids=customer_segment_ids,
+                top_k=2
             )
 
         context_md, matched_insights = _format_copilot_context_and_insights(
             competitors=competitors,
             problems=problems,
             experiences=experiences,
-            market_segments=market_segments
+            market_segments=market_segments,
+            customer_segments=customer_segments,
+            customer_segment_ids=customer_segment_ids
         )
 
         # Bổ sung dữ liệu nhánh chuyên sâu vào context LLM
@@ -1749,6 +1883,100 @@ def copilot_chat_stream(req: CopilotChatRequest, authorization: Optional[str] = 
     except Exception as e:
         logger.error(f"[!] Lỗi trong quá trình stream Co-pilot: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Lỗi xử lý trợ lý: {str(e)}")
+
+
+# =====================================================================
+# SỔ TAY TÁC CHIẾN (TACTICAL PLAYBOOK - EMBEDDED DOCUMENT MODEL)
+# =====================================================================
+
+@app.post("/api/copilot/playbook/save")
+def save_playbook(req: SavePlaybookRequest, authorization: Optional[str] = Header(None)):
+    """
+    Lưu câu trả lời chiến thuật từ Copilot vào Sổ tay tác chiến (copilot_playbooks).
+    Tự động bóc tách các đầu việc Checklist thành mảng tasks có task_id độc lập.
+    """
+    user = get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để lưu vào Sổ tay tác chiến!")
+
+    db = get_db()
+    from .pipeline.llm_copilot.playbook_service import save_playbook_entry
+    result = save_playbook_entry(db, user["username"], req.model_dump())
+    return {
+        "status": "success",
+        "message": f"Đã lưu kế sách vào Sổ tay tác chiến thành công ({result['task_count']} nhiệm vụ)!",
+        "playbook": result
+    }
+
+
+@app.get("/api/copilot/playbook/entries")
+def get_playbooks(authorization: Optional[str] = Header(None)):
+    """
+    Lấy toàn bộ danh sách các kế sách và mảng checklist tasks của người dùng.
+    """
+    user = get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để xem Sổ tay tác chiến!")
+
+    db = get_db()
+    from .pipeline.llm_copilot.playbook_service import get_user_playbooks
+    entries = get_user_playbooks(db, user["username"])
+    total_tasks = sum(e.get("task_count", 0) for e in entries)
+    total_completed = sum(e.get("completed_task_count", 0) for e in entries)
+
+    return {
+        "status": "success",
+        "entries": entries,
+        "total_playbooks": len(entries),
+        "total_tasks": total_tasks,
+        "total_completed": total_completed
+    }
+
+
+@app.patch("/api/copilot/playbook/tasks/{task_id}/toggle")
+def toggle_task(task_id: str, req: Optional[ToggleTaskRequest] = None, authorization: Optional[str] = Header(None)):
+    """
+    Cập nhật trạng thái tick/untick của 1 task checklist cụ thể trong mảng nhúng.
+    """
+    user = get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để cập nhật nhiệm vụ!")
+
+    db = get_db()
+    from .pipeline.llm_copilot.playbook_service import toggle_playbook_task
+    is_comp = req.is_completed if req else None
+    result = toggle_playbook_task(db, user["username"], task_id, is_comp)
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhiệm vụ hoặc không có quyền thao tác!")
+
+    return {
+        "status": "success",
+        "message": "Đã cập nhật trạng thái nhiệm vụ!",
+        "task": result
+    }
+
+
+@app.delete("/api/copilot/playbook/entries/{playbook_id}")
+def delete_playbook(playbook_id: str, authorization: Optional[str] = Header(None)):
+    """
+    Xóa 1 kế sách khỏi Sổ tay tác chiến (các tasks nhúng tự động xóa theo).
+    """
+    user = get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập để xóa kế sách!")
+
+    db = get_db()
+    from .pipeline.llm_copilot.playbook_service import delete_playbook_entry
+    ok = delete_playbook_entry(db, user["username"], playbook_id)
+
+    if not ok:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kế sách cần xóa!")
+
+    return {
+        "status": "success",
+        "message": "Đã xóa kế sách khỏi Sổ tay tác chiến thành công!"
+    }
 
 
 # =====================================================================

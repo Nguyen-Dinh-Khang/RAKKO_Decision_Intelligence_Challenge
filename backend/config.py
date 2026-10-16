@@ -28,13 +28,16 @@ HOST = os.getenv("HOST", "0.0.0.0")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME", "MLAI_Hackathon_2026")
 
-# Cấu hình Máy chủ LLM Ollama cục bộ
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+# Cấu hình Máy chủ LLM Ollama (Tự động fallback giữa Server 11435 và Local 11434)
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11435")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen3.5:4b")
+NUM_CTX = int(os.getenv("NUM_CTX", "20480"))
 
-# Cấu hình Mô hình Vector Embedding (BAAI/bge-m3)
+# Cấu hình Mô hình Vector Embedding (BAAI/bge-m3 Quantization)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+EMBEDDING_QUANTIZATION = os.getenv("EMBEDDING_QUANTIZATION", "fp16")
 DEVICE = os.getenv("DEVICE", "cuda")  # Tự động fallback CPU nếu không có GPU CUDA
 
 # Đường dẫn file ánh xạ Tag chuẩn hóa
 TAG_MAP_PATH = Path(__file__).resolve().parent / "tag_map.json"
+

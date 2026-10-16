@@ -93,8 +93,12 @@ def analyse_market(
         "customer_insights": {
             "time": cust_insights.get("time", "06:30 - 08:30"),
             "price": cust_insights.get("price", "25.000đ - 35.000đ"),
+            "price_min": cust_insights.get("price_min", 25000.0),
+            "price_max": cust_insights.get("price_max", 35000.0),
             "interest": cust_insights.get("interest", 0.8),
-            "behavior": cust_insights.get("behavior", "")
+            "behavior": cust_insights.get("behavior", ""),
+            "primary_product_id": cust_insights.get("primary_product_id"),
+            "secondary_insights": cust_insights.get("secondary_insights")
         },
         "average_price": avg_price_data,
         "recommended_price": rec_price,

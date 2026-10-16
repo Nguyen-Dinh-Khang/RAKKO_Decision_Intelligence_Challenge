@@ -7,6 +7,23 @@ import {
 import FormattedMarkdown from './FormattedMarkdown';
 
 /**
+ * Bảng ánh xạ tương thích giữa 10 Mô hình kinh doanh (101 - 110) và 20 Nhóm sản phẩm (201 - 220)
+ * Kiểm tra ngay tại Frontend để phản hồi tức thì cho người dùng.
+ */
+const MODEL_PRODUCT_COMPATIBILITY = {
+  101: [201, 202, 203, 204, 205], // Quán ăn sáng: Đồ uống, Cơm, Món nước, Bánh mì & Điểm tâm, Đồ ăn vặt
+  102: [201, 204, 205],           // Quán nước / Cà phê: Đồ uống, Bánh mì & Điểm tâm, Đồ ăn vặt
+  103: [201, 202, 203, 206],      // Quán cơm / Nhà hàng nhỏ: Đồ uống, Cơm, Món nước, Món nhậu/Lẩu/Nướng
+  104: [201, 205, 206],           // Quán nhậu / Ăn vặt: Đồ uống, Đồ ăn vặt, Món nhậu/Lẩu/Nướng
+  105: [201, 204, 205],           // Kiosk / Xe đẩy mang đi: Đồ uống, Bánh mì & Điểm tâm, Đồ ăn vặt tinh gọn
+  106: [201, 207, 208, 217, 218], // Tạp hóa / Đại lý: Đồ uống, Thực phẩm tươi, Tạp hóa, Gia dụng, Văn phòng phẩm
+  107: [208, 209, 210, 211, 215, 216, 217, 218], // Bán lẻ chuyên doanh: Quần áo, Giày dép, Mỹ phẩm, Thuốc, Phụ kiện, Quà tặng
+  108: [211, 212, 213, 214],      // Tiệm làm đẹp / Spa: Mỹ phẩm, Cắt tóc, Massage/Spa, Nail & Mi
+  109: [218, 219, 220],           // Dịch vụ dân sinh: Văn phòng phẩm/In ấn, Giặt ủi, Sửa xe máy
+  110: [201, 204, 205, 207, 208, 211, 217] // Siêu thị mini: Đồ uống, Bánh mì, Ăn vặt, Thực phẩm tươi, Tạp hóa, Mỹ phẩm, Gia dụng
+};
+
+/**
  * FeasibilityScanner - Giao diện 1: Máy quét Thẩm định Ý tưởng (Day 0)
  * Giúp người dùng kiểm tra tính khả thi trước khi bỏ vốn.
  * Chạy trọn vẹn pipeline 5 mắt xích và trả về bản phân tích 5 khối chuyên sâu.
@@ -17,6 +34,7 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
   const [address, setAddress] = useState('');
   const [modelId, setModelId] = useState('');
   const [selectedProductIds, setSelectedProductIds] = useState([]);
+  const [compatibilityNotice, setCompatibilityNotice] = useState(null);
   const [budget, setBudget] = useState('');
   const [rent, setRent] = useState(''); // Để trống để hệ thống tự tính
 
@@ -33,6 +51,8 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
   const [savingStrategy, setSavingStrategy] = useState(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState(null);
   const [isCurrentReportSaved, setIsCurrentReportSaved] = useState(true);
+  const [showScenarioModal, setShowScenarioModal] = useState(false);
+  const [chosenScenarioToSave, setChosenScenarioToSave] = useState('normal'); // 'normal' | 'premium'
 
   // Tự động nạp thông tin cá nhân và kế sách đã lưu khi người dùng đăng nhập
   useEffect(() => {
@@ -59,8 +79,30 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
     }
   }, [savedStrategy]);
 
-  // Toggle chọn sản phẩm (Chọn từ 1 đến 3 món)
+  // Xử lý khi đổi mô hình: Tự động lọc bỏ các món không còn phù hợp
+  const handleModelChange = (newModelIdStr) => {
+    setModelId(newModelIdStr);
+    setCompatibilityNotice(null);
+    if (!newModelIdStr) return;
+
+    const mid = parseInt(newModelIdStr);
+    const allowed = MODEL_PRODUCT_COMPATIBILITY[mid] || [];
+
+    const invalidSelected = selectedProductIds.filter(pid => !allowed.includes(pid));
+    if (invalidSelected.length > 0) {
+      const validSelected = selectedProductIds.filter(pid => allowed.includes(pid));
+      setSelectedProductIds(validSelected);
+      setCompatibilityNotice('Hệ thống đã tự động bỏ chọn các sản phẩm không phù hợp với mô hình kinh doanh mới.');
+      setTimeout(() => setCompatibilityNotice(null), 4500);
+    }
+  };
+
+  // Toggle chọn sản phẩm (Chọn từ 1 đến 3 món, chặn món không tương thích)
   const toggleProduct = (productId) => {
+    if (modelId) {
+      const allowed = MODEL_PRODUCT_COMPATIBILITY[parseInt(modelId)] || [];
+      if (!allowed.includes(productId)) return;
+    }
     if (selectedProductIds.includes(productId)) {
       setSelectedProductIds(selectedProductIds.filter(id => id !== productId));
     } else {
@@ -68,6 +110,13 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
         setSelectedProductIds([...selectedProductIds, productId]);
       }
     }
+  };
+
+  // Đặt một món đã chọn làm Món chủ lực (đưa lên đầu mảng selectedProductIds)
+  const setPrimaryProduct = (productId) => {
+    if (!selectedProductIds.includes(productId)) return;
+    const remaining = selectedProductIds.filter(id => id !== productId);
+    setSelectedProductIds([productId, ...remaining]);
   };
 
   // Điều kiện kiểm tra đã điền đủ toàn bộ các trường bắt buộc (tiền thuê bắt buộc, cho phép nhập 0)
@@ -82,8 +131,34 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
     isRentValid
   );
 
-  // Lưu kế sách chiến lược vào CSDL MongoDB (Tự động nạp số liệu nhân sự & tệp khách hàng từ bộ giả lập)
-  const handleSaveStrategy = async () => {
+  // Bắt đầu quy trình lưu kế sách: nếu có cả 2 kịch bản thì hiển thị modal hỏi người dùng
+  const handleInitiateSave = () => {
+    if (!currentUser) {
+      alert('Vui lòng đăng nhập trước khi lưu kế sách chiến lược!');
+      return;
+    }
+    const currentReport = result || savedStrategy?.report_result;
+    if (!currentReport) {
+      alert('Chưa có kết quả thẩm định để lưu!');
+      return;
+    }
+
+    const stressList = Array.isArray(currentReport?.stress_test) ? currentReport.stress_test : [];
+    const normalScen = stressList.find(s => s.scenario === 'normal') || stressList[0];
+    const premiumScen = stressList.find(s => s.scenario === 'premium');
+
+    // Nếu có cả 2 kịch bản thì mở modal hỏi người dùng muốn lưu bản nào
+    if (normalScen && premiumScen) {
+      setChosenScenarioToSave(scenarioTab === 'premium' ? 'premium' : 'normal');
+      setShowScenarioModal(true);
+    } else {
+      // Chỉ có 1 kịch bản thì lưu luôn kịch bản thường
+      executeSaveStrategy('normal');
+    }
+  };
+
+  // Thực hiện lưu kế sách với kịch bản được chọn ('normal' hoặc 'premium')
+  const executeSaveStrategy = async (selectedScenarioType = 'normal') => {
     if (!currentUser) {
       alert('Vui lòng đăng nhập trước khi lưu kế sách chiến lược!');
       return;
@@ -142,7 +217,8 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
         product_ids: finalProductIds,
         report_result: currentReport,
         budget: finalBudget,
-        rent: finalRent
+        rent: finalRent,
+        selected_scenario: selectedScenarioType
       };
 
       const res = await fetch('/api/user/strategy/save', {
@@ -187,7 +263,9 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
 
       setIsCurrentReportSaved(true);
       setShowSavePrompt(false);
-      setSaveSuccessMessage('Đã lưu thành công kế sách chiến lược vào hồ sơ cá nhân của bạn!');
+      setShowScenarioModal(false);
+      const scenLabel = selectedScenarioType === 'premium' ? 'Nâng cao (Premium)' : 'Thông thường (Normal)';
+      setSaveSuccessMessage(`Đã lưu thành công Kế sách [${scenLabel}] vào hồ sơ cá nhân của bạn!`);
       if (onStrategySaved && data?.strategy) {
         onStrategySaved(data.strategy);
       }
@@ -270,6 +348,15 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
 
           try {
             const parsed = JSON.parse(jsonStr);
+
+            if (parsed.type === 'error') {
+              clearInterval(stepsInterval);
+              setResult(null);
+              setError(parsed.message || 'Lỗi xử lý pipeline thẩm định');
+              setIsStreamingAi(false);
+              setLoading(false);
+              return;
+            }
 
             if (parsed.type === 'logic_results') {
               // PHA 1: NHẬN NGAY LẬP TỨC TOÀN BỘ KẾT QUẢ LOGIC TỪ BACKEND
@@ -404,7 +491,7 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
                 <Store className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
                 <select
                   value={modelId}
-                  onChange={(e) => setModelId(e.target.value)}
+                  onChange={(e) => handleModelChange(e.target.value)}
                   className={`w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition appearance-none ${
                     !modelId ? 'text-slate-400' : 'text-slate-900'
                   }`}
@@ -424,31 +511,92 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  3. Món / Sản phẩm định bán (Chọn 1 - 3) <span className="text-red-500">*</span>
+                  3. Sản phẩm / Dịch vụ định bán (Chọn 1 - 3) <span className="text-red-500">*</span>
                 </label>
                 <span className={`text-[11px] font-medium ${selectedProductIds.length === 0 ? 'text-slate-400' : 'text-blue-600 font-semibold'}`}>
-                  {selectedProductIds.length === 0 ? 'Chưa chọn món' : `Đã chọn: ${selectedProductIds.length}/3`}
+                  {selectedProductIds.length === 0 ? 'Chưa chọn' : `Đã chọn: ${selectedProductIds.length}/3`}
                 </span>
               </div>
+              {compatibilityNotice && (
+                <div className="mb-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] flex items-center gap-1.5 animate-fadeIn">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                  <span>{compatibilityNotice}</span>
+                </div>
+              )}
               <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1.5 bg-slate-50 rounded-xl border border-slate-200">
                 {metadata?.products?.map((p) => {
+                  const allowedList = modelId ? (MODEL_PRODUCT_COMPATIBILITY[parseInt(modelId)] || []) : null;
+                  const isCompatible = !allowedList || allowedList.includes(p.id);
                   const isSelected = selectedProductIds.includes(p.id);
+                  const isPrimary = isSelected && selectedProductIds[0] === p.id;
                   return (
                     <button
                       key={p.id}
                       type="button"
+                      disabled={!isCompatible}
                       onClick={() => toggleProduct(p.id)}
-                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition ${
-                        isSelected
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                      title={!isCompatible ? 'Sản phẩm/dịch vụ không phù hợp với mô hình kinh doanh này' : isPrimary ? 'Sản phẩm/Dịch vụ chủ lực (Định hình dải giá & giờ vàng)' : isSelected ? 'Sản phẩm/Dịch vụ bán kèm' : p.name}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1 ${
+                        !isCompatible
+                          ? 'bg-slate-100 text-slate-400 border border-slate-200 opacity-35 cursor-not-allowed'
+                          : isPrimary
+                            ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/60 font-bold'
+                            : isSelected
+                              ? 'bg-indigo-600 text-white shadow-sm font-semibold'
+                              : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
                       }`}
                     >
-                      {p.name}
+                      {isPrimary && <span>★</span>}
+                      {isSelected && !isPrimary && <span className="text-[10px] opacity-80">+</span>}
+                      <span>{p.name}</span>
                     </button>
                   );
                 })}
               </div>
+
+              {/* Tóm tắt cơ cấu Sản phẩm chủ lực & Bán kèm */}
+              {selectedProductIds.length > 0 && (
+                <div className="mt-2 p-2 rounded-lg bg-blue-50/70 border border-blue-100 text-[11px] space-y-1">
+                  <div className="flex items-center justify-between text-slate-600 font-semibold">
+                    <span>Cơ cấu sản phẩm & dịch vụ:</span>
+                    <span className="text-[10px] text-blue-700 font-normal">
+                      * Sản phẩm/dịch vụ chủ lực định hình dải giá & giờ vàng
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    {selectedProductIds.map((pid, idx) => {
+                      const prod = metadata?.products?.find(p => p.id === pid);
+                      const isPrimary = idx === 0;
+                      return (
+                        <span
+                          key={pid}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md ${
+                            isPrimary
+                              ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                              : 'bg-white text-slate-700 border border-slate-200'
+                          }`}
+                        >
+                          <span>{isPrimary ? '★ Chủ lực: ' : '➕ Bán kèm: '}</span>
+                          <strong>{prod?.name || pid}</strong>
+                          {!isPrimary && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPrimaryProduct(pid);
+                              }}
+                              title="Đặt làm sản phẩm/dịch vụ chủ lực"
+                              className="ml-1 text-[10px] text-blue-600 hover:text-blue-800 underline font-semibold cursor-pointer"
+                            >
+                              (Đổi làm chính)
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 4. Số vốn hiện có */}
@@ -496,7 +644,7 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
               </div>
               {rent !== '' && !isNaN(Number(rent)) && Number(rent) >= 0 ? (
                 <div className="text-[11px] text-slate-500 mt-1 font-medium">
-                  Tương đương: <span className="text-blue-700 font-bold">{Number(rent) === 0 ? '0 đ (Có sẵn mặt bằng / Bán online)' : `${formatVND(rent)}/tháng`}</span>
+                  Tương đương: <span className="text-blue-700 font-bold">{Number(rent) === 0 ? '0 đ (Có sẵn mặt bằng / Bán online / Điểm bán 0 đồng)' : `${formatVND(rent)}/tháng`}</span>
                 </div>
               ) : (
                 <div className="text-[10px] text-slate-400 mt-1">
@@ -721,7 +869,7 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
                   <button
                     type="button"
                     disabled={savingStrategy}
-                    onClick={handleSaveStrategy}
+                    onClick={handleInitiateSave}
                     className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-500/25 flex items-center space-x-1.5 transition active:scale-[0.98] disabled:opacity-50"
                   >
                     {savingStrategy ? (
@@ -737,7 +885,176 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
               </div>
             )}
 
-            {/* 3. THÔNG BÁO LƯU THÀNH CÔNG */}
+            {/* 3. MODAL HỎI CHỌN KỊCH BẢN KHI CÓ CẢ HAI (NORMAL & PREMIUM) */}
+            {showScenarioModal && (() => {
+              const currentReport = result || savedStrategy?.report_result;
+              const stressList = Array.isArray(currentReport?.stress_test) ? currentReport.stress_test : [];
+              const normalScen = stressList.find(s => s.scenario === 'normal') || stressList[0] || {};
+              const premiumScen = stressList.find(s => s.scenario === 'premium') || {};
+
+              return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+                  <div 
+                    className="bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {/* Header Modal */}
+                    <div className="px-6 py-4 bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 text-white flex items-center justify-between shrink-0 shadow-sm">
+                      <div className="flex items-center space-x-2.5">
+                        <div className="p-2 rounded-xl bg-white/10 text-white border border-white/15">
+                          <Sparkles className="w-5 h-5 text-amber-300" />
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-base sm:text-lg tracking-tight">
+                            Chọn Kịch Bản Lưu Vào Hồ Sơ Quán
+                          </h3>
+                          <p className="text-xs text-blue-100/80 font-normal mt-0.5">
+                            Phát hiện 2 kịch bản khả thi. Vui lòng chọn bản bạn muốn áp dụng:
+                          </p>
+                        </div>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => setShowScenarioModal(false)}
+                        className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white transition"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Nội dung 2 Thẻ kịch bản */}
+                    <div className="p-5 sm:p-6 space-y-3.5 overflow-y-auto max-h-[70vh]">
+                      {/* Card 1: Normal Scenario */}
+                      <div 
+                        onClick={() => setChosenScenarioToSave('normal')}
+                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                          chosenScenarioToSave === 'normal' 
+                            ? 'border-blue-600 bg-blue-50/60 shadow-md ring-2 ring-blue-500/20' 
+                            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center space-x-2.5">
+                            <input 
+                              type="radio"
+                              name="chosenScenario"
+                              value="normal"
+                              checked={chosenScenarioToSave === 'normal'}
+                              onChange={() => setChosenScenarioToSave('normal')}
+                              className="w-4 h-4 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <div>
+                              <span className="font-bold text-slate-900 text-sm">Kịch bản Thông thường (Normal)</span>
+                              <span className="ml-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                Phổ thông & Tinh gọn
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-2 ml-6">
+                          Vận hành chuẩn quy mô bình dân, tối ưu vốn khởi điểm và đảm bảo sinh tồn bền bỉ.
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 mt-3 ml-6 pt-2.5 border-t border-slate-200/80 text-xs">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-medium">Capex sàn:</span>
+                            <span className="font-bold text-slate-800">{formatVND(normalScen.capex)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-medium">Định phí/tháng:</span>
+                            <span className="font-bold text-slate-800">{formatVND(normalScen.monthly_fixed_cost)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-medium">Runway sinh tồn:</span>
+                            <span className="font-extrabold text-blue-700">{normalScen.month || 0} tháng</span>
+                          </div>
+                        </div>
+                        <div className="mt-2 ml-6 text-[11px] text-slate-500">
+                          Nhân sự vận hành: <strong className="text-slate-700">{normalScen.staff_count ?? 1} người</strong> (đã tính cả chủ cơ sở)
+                        </div>
+                      </div>
+
+                      {/* Card 2: Premium Scenario */}
+                      <div 
+                        onClick={() => setChosenScenarioToSave('premium')}
+                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all ${
+                          chosenScenarioToSave === 'premium' 
+                            ? 'border-indigo-600 bg-indigo-50/60 shadow-md ring-2 ring-indigo-500/20' 
+                            : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center space-x-2.5">
+                            <input 
+                              type="radio"
+                              name="chosenScenario"
+                              value="premium"
+                              checked={chosenScenarioToSave === 'premium'}
+                              onChange={() => setChosenScenarioToSave('premium')}
+                              className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                            <div>
+                              <span className="font-bold text-slate-900 text-sm">Kịch bản Nâng cao (Premium)</span>
+                              <span className="ml-2 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                                Đầu tư mở rộng (+1 NV)
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-2 ml-6">
+                          Đầu tư thiết bị chuyên sâu (+40% Capex), bổ sung thêm nhân sự phục vụ (+1 NV) và nâng tầm giỏ hàng.
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 mt-3 ml-6 pt-2.5 border-t border-slate-200/80 text-xs">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-medium">Capex đầu tư:</span>
+                            <span className="font-bold text-slate-800">{formatVND(premiumScen.capex)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-medium">Định phí/tháng:</span>
+                            <span className="font-bold text-slate-800">{formatVND(premiumScen.monthly_fixed_cost)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-medium">Runway sinh tồn:</span>
+                            <span className="font-extrabold text-indigo-700">{premiumScen.month || 0} tháng</span>
+                          </div>
+                        </div>
+                        <div className="mt-2 ml-6 text-[11px] text-slate-500">
+                          Nhân sự vận hành: <strong className="text-slate-700">{premiumScen.staff_count ?? 2} người</strong> (đã tính cả chủ cơ sở)
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Footer Modal */}
+                    <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-2.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={savingStrategy}
+                        onClick={() => setShowScenarioModal(false)}
+                        className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200/80 transition"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingStrategy}
+                        onClick={() => executeSaveStrategy(chosenScenarioToSave)}
+                        className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-500/25 flex items-center space-x-1.5 transition active:scale-[0.98] disabled:opacity-50"
+                      >
+                        {savingStrategy ? (
+                          <span>Đang lưu...</span>
+                        ) : (
+                          <>
+                            <Bookmark className="w-4 h-4" />
+                            <span>Xác nhận lưu kịch bản này</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 4. THÔNG BÁO LƯU THÀNH CÔNG */}
             {saveSuccessMessage && (
               <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between shadow-xs">
                 <div className="flex items-center space-x-2">
@@ -975,7 +1292,7 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
                             </div>
 
                             <div className="mt-3 pt-2 text-[11px] text-slate-500 flex flex-wrap items-center justify-between gap-1.5 border-t border-slate-200/80">
-                              <span>Nhân sự giả lập: <strong>{currentScen.staff_count || 1} người</strong> | Điện nước: <strong>{formatVND(currentScen.utilities_cost)}</strong></span>
+                              <span>Nhân sự vận hành: <strong>{currentScen.staff_count ?? 1} người</strong> (đã tính chủ cơ sở) | Điện nước: <strong>{formatVND(currentScen.utilities_cost)}</strong></span>
                               <span className="text-[10px] italic text-slate-400">* Các thông số trên là cơ sở giả định tính thử tải</span>
                             </div>
                           </div>
@@ -1082,6 +1399,16 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
               const recPrices = ma.recommended_price || [];
               const insights = ma.customer_insights || {};
               const recTime = ma.recommended_time || insights.time || '06:00 - 09:00';
+              const secInsights = insights.secondary_insights;
+
+              // Tra cứu tên sản phẩm/dịch vụ chủ lực và bán kèm
+              const primaryPid = insights.primary_product_id || (selectedProductIds.length > 0 ? selectedProductIds[0] : null);
+              const primaryProdObj = metadata?.products?.find(p => p.id === primaryPid);
+              const primaryProdName = primaryProdObj?.name || (primaryPid ? `Mã ${primaryPid}` : null);
+
+              const secPid = secInsights?.product_id || (selectedProductIds.length > 1 ? selectedProductIds[1] : null);
+              const secProdObj = metadata?.products?.find(p => p.id === secPid);
+              const secProdName = secProdObj?.name || (secPid ? `Mã ${secPid}` : 'Sản phẩm/dịch vụ kèm');
 
               return (
                 <div className="bg-gradient-to-tr from-blue-50/50 via-indigo-50/30 to-purple-50/40 border border-blue-200/80 rounded-2xl p-5 sm:p-6 shadow-sm space-y-5">
@@ -1154,7 +1481,7 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
                       </div>
 
                       <div className="pt-2 border-t border-slate-100 space-y-1 text-xs">
-                        <span className="text-[10px] font-bold text-blue-700 uppercase block">Đề xuất giá bán tối ưu:</span>
+                        <span className="text-[10px] font-bold text-blue-700 uppercase block">Đề xuất giá bán tối ưu (Món chính):</span>
                         <div className="space-y-1">
                           {recPrices.map((rp, i) => (
                             <div key={i} className="flex items-center justify-between p-1.5 rounded-lg bg-blue-50/70 border border-blue-100 text-xs">
@@ -1168,6 +1495,12 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
                             <div className="text-xs text-slate-600 font-medium">{insights.price || '25.000đ - 35.000đ'}</div>
                           )}
                         </div>
+                        {secInsights?.price && (
+                          <div className="pt-1.5 flex items-center justify-between text-[11px] text-slate-600 border-t border-dashed border-slate-200">
+                            <span className="font-medium text-indigo-900">➕ Bán kèm ({secProdName}):</span>
+                            <span className="font-bold text-indigo-700">{secInsights.price}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1180,7 +1513,14 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
                         </div>
 
                         <div className="space-y-1 text-xs">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase block">Khung giờ khách quen (DB5):</span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block">Khung giờ khách quen (DB5):</span>
+                            {primaryProdName && (
+                              <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
+                                ★ {primaryProdName}
+                              </span>
+                            )}
+                          </div>
                           <p className="font-semibold text-slate-800 bg-amber-50/70 p-2 rounded-lg border border-amber-200/60 text-xs">
                             ⏰ {insights.time || '06:30 - 08:30'}
                           </p>
@@ -1188,16 +1528,36 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
 
                         {insights.behavior && (
                           <div className="space-y-1 text-xs">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase block">Đặc điểm hành vi:</span>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block">Đặc điểm hành vi (Món chính):</span>
                             <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
                               {insights.behavior}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Món bán kèm / bổ trợ (nếu có) */}
+                        {secInsights && (
+                          <div className="p-2.5 rounded-lg bg-indigo-50/80 border border-indigo-200/70 text-xs space-y-1 mt-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-indigo-900 uppercase">
+                                ➕ Bán kèm ({secProdName}):
+                              </span>
+                              <span className="text-[10px] font-bold text-indigo-700">
+                                {secInsights.price}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-800 font-semibold">
+                              ⏰ Giờ cao điểm phụ: <strong>{secInsights.time}</strong>
+                            </p>
+                            <p className="text-[10px] text-slate-600 italic">
+                              "{secInsights.behavior}"
                             </p>
                           </div>
                         )}
                       </div>
 
                       <div className="pt-2 border-t border-slate-100 text-xs">
-                        <span className="text-[10px] font-bold text-indigo-700 uppercase block">Đề xuất giờ vàng mở bán:</span>
+                        <span className="text-[10px] font-bold text-indigo-700 uppercase block">Đề xuất giờ vàng mở bán (Món chính):</span>
                         <div className="font-black text-indigo-900 bg-indigo-50/80 p-2 rounded-lg border border-indigo-200/60 mt-1 text-xs">
                           🚀 {recTime}
                         </div>
@@ -1341,6 +1701,24 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
               )}
             </div>
 
+            {/* THẺ LƯU Ý PHÁP LÝ & QUYỀN TỰ QUYẾT */}
+            <div className="bg-amber-50/70 rounded-2xl p-4 sm:p-5 border border-amber-200/80 shadow-2xs flex items-start space-x-3.5">
+              <div className="p-2 rounded-xl bg-amber-100 text-amber-700 shrink-0 mt-0.5">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1 text-xs text-amber-900 leading-relaxed">
+                <h5 className="font-bold text-amber-950 uppercase tracking-wide text-[11px]">
+                  Lưu ý quan trọng & Giới hạn trách nhiệm
+                </h5>
+                <p>
+                  Đây là chiến lược gợi ý dựa trên dữ liệu địa bàn và bài toán kinh doanh thực tế, <strong>quyền quyết định hoàn toàn nằm ở bạn</strong>.
+                </p>
+                <p className="text-[11px] text-amber-800/90 font-normal">
+                  Toàn bộ thủ tục hành chính, giấy tờ pháp lý, đăng ký kinh doanh, an toàn thực phẩm và pháp lý mặt bằng <strong>không nằm trong phạm vi nhiệm vụ của hệ thống</strong> — chủ cơ sở tự chịu trách nhiệm thực hiện theo quy định pháp luật.
+                </p>
+              </div>
+            </div>
+
           </div>
           );
         })()}
@@ -1351,7 +1729,7 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
             MLAI Decision Intelligence & Tactical Co-pilot Platform © 2026
           </p>
           <p>
-            Nền tảng Thẩm định & Cố vấn Chiến lược Kinh doanh F&B / Bán lẻ Thực chiến
+            Nền tảng Thẩm định & Cố vấn Chiến lược Hộ Kinh doanh Bán lẻ & Dịch vụ Thực chiến
           </p>
         </footer>
 

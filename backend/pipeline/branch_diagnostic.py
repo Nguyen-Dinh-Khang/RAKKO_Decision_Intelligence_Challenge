@@ -2,17 +2,17 @@
 branch_diagnostic.py - Module Xử lý Chuyên biệt Nhánh 5: Phân tích & Chẩn đoán Bệnh kinh doanh (Diagnostic Triage)
 Đặc tả: Phần I & Phần III (Mục 3.7), Phần IV (Mục 4.3) - Tactical Copilot Engine (v3.2.0)
 
-Triết lý cốt lõi: "Bác sĩ chẩn đoán F&B thực chiến"
+Triết lý cốt lõi: "Bác sĩ chẩn đoán Kinh doanh & Dịch vụ thực chiến"
 1. Hệ thống không vội vàng phán xét mà khoanh vùng 2 - 3 Kịch bản khả nghi nhất.
-2. Thiết lập Checklist chi tiết từng bước (- [ ]) để chủ quán tự kiểm tra trong 24h.
+2. Thiết lập Checklist chi tiết từng bước (- [ ]) để chủ cơ sở tự kiểm tra trong 24h.
 3. 8 Tag Triệu chứng than phiền đời thường (DB3: 401 - 408):
    - Tag 401: Mặt bằng & Pháp lý
    - Tag 402: Dòng tiền & Định giá
-   - Tag 403: Chuỗi cung ứng & Nguyên liệu
+   - Tag 403: Chuỗi cung ứng & Nguyên liệu / Hàng hóa
    - Tag 404: Vận hành & Nhân sự
    - Tag 405: Marketing & Giữ chân khách
-   - Tag 406: Sản phẩm & Trải nghiệm
-   - Tag 407: Bán hàng đa kênh & App giao hàng
+   - Tag 406: Sản phẩm, Dịch vụ & Trải nghiệm
+   - Tag 407: Bán hàng đa kênh, App & TMĐT
    - Tag 408: Đối thủ cạnh tranh & Chiến tranh giá
 """
 
@@ -225,65 +225,65 @@ def diagnose_business_issues(
         elif t_id == "TAG_402":
             title = "Bẫy Dòng tiền & Định giá dưới Biên an toàn"
             symptom = "Bán có doanh thu và đông khách nhưng cuối tháng hụt tiền két, không thấy tiền dư."
-            leak = "Định giá món ăn quá rẻ hoặc chi phí sàn app/hao hụt ăn mòn toàn bộ biên lãi gộp."
+            leak = "Định giá sản phẩm/dịch vụ quá rẻ hoặc chi phí sàn/hao hụt ăn mòn toàn bộ biên lãi gộp."
             steps = [
                 ("Soi hiện trường", "Tách riêng dòng tiền mặt tại quầy và dòng tiền chuyển khoản / ví điện tử mỗi ngày."),
-                ("Cân đo / Đếm số liệu", "Tính lãi gộp thực tế của từng món chính sau khi trừ giá vốn nguyên liệu và phí sàn."),
-                ("Tiêu chuẩn đối chiếu", "Nếu biên lãi gộp dưới 45% ở F&B bán lẻ -> Càng bán nhiều đơn càng thâm hụt vốn lưu động.")
+                ("Cân đo / Đếm số liệu", "Tính lãi gộp thực tế của từng sản phẩm / dịch vụ chủ lực sau khi trừ giá vốn và phí bán hàng."),
+                ("Tiêu chuẩn đối chiếu", "Nếu biên lãi gộp dưới ngưỡng an toàn ngành (dưới 45% ở F&B, dưới 25% ở bán lẻ tiêu dùng, dưới 60% ở dịch vụ) -> Càng bán nhiều càng thâm hụt vốn lưu động.")
             ]
         elif t_id == "TAG_403":
-            title = "Thất thoát vô hình ở Khâu Định lượng & Bảo quản Nguyên liệu"
-            symptom = "Nguyên liệu hao hụt nhiều, đồ ăn cốt nước bị chua thiu hỏng phải đổ bỏ."
-            leak = "Rót siro/sữa theo cảm tính hoặc bảo quản không chuẩn làm đội giá vốn 15% - 20%."
+            title = "Thất thoát vô hình ở Khâu Định lượng, Vật tư & Tồn kho"
+            symptom = "Nguyên vật liệu hao hụt nhiều, hàng hóa tồn ứ quá hạn hoặc đồ tươi/hóa chất bị hư hỏng phải hủy bỏ."
+            leak = "Định lượng vật tư/nguyên liệu theo cảm tính hoặc bảo quản không chuẩn làm đội chi phí 15% - 20%."
             steps = [
-                ("Soi hiện trường", "Quan sát trực tiếp 5 lần pha chế / ra món giờ cao điểm xem nhân sự có dùng ca đong chuẩn không."),
-                ("Cân đo / Đếm số liệu", "Chia tổng lượng nguyên liệu xuất kho cho số suất bán ra trong tuần đối chiếu với barem chuẩn."),
-                ("Tiêu chuẩn đối chiếu", "Nếu lượng nguyên liệu thực tế dùng vượt > 10% barem chuẩn -> Đã tìm ra lỗ rò rỉ!")
+                ("Soi hiện trường", "Quan sát trực tiếp 5 lượt phục vụ / ra món / làm dịch vụ giờ cao điểm xem nhân sự có làm đúng định lượng, quy trình chuẩn không."),
+                ("Cân đo / Đếm số liệu", "Chia tổng lượng nguyên liệu/vật tư xuất dùng cho số lượt phục vụ/sản phẩm bán ra trong tuần đối chiếu với barem chuẩn."),
+                ("Tiêu chuẩn đối chiếu", "Nếu lượng nguyên vật liệu thực tế dùng vượt > 10% barem chuẩn -> Đã tìm ra lỗ rò rỉ!")
             ]
         elif t_id == "TAG_404":
             title = "Lỗ hổng Vận hành & Kỷ luật Nhân sự"
-            symptom = "Nhân viên làm sai công thức, thái độ cộc cằn, làm chậm giờ cao điểm hoặc nghi ngờ gian lận."
+            symptom = "Nhân viên làm sai quy trình, thái độ cộc cằn, thao tác chậm giờ cao điểm hoặc nghi ngờ gian lận."
             leak = "Mất khách vĩnh viễn do trải nghiệm tồi tệ và thất thoát tiền két tại quầy thu ngân."
             steps = [
                 ("Soi hiện trường", "Kiểm tra camera góc quầy thu ngân và quy trình xuất hóa đơn trước khi nhận tiền."),
-                ("Cân đo / Đếm số liệu", "Đối chiếu số lượng ly/dĩa bán ra trên phần mềm với số lượng vật tư tiêu hao (ly nhựa, hộp mang đi)."),
-                ("Tiêu chuẩn đối chiếu", "Nếu số lượng vỏ hộp/ly hao hụt lệch > 5% so với đơn trên bill -> Có rủi ro gian lận tiền két.")
+                ("Cân đo / Đếm số liệu", "Đối chiếu số lượng đơn bán ra trên phần mềm với số lượng vật tư tiêu hao (ly/hộp/túi gói/phiếu dịch vụ)."),
+                ("Tiêu chuẩn đối chiếu", "Nếu số lượng vật tư tiêu hao hao hụt lệch > 5% so với đơn trên bill -> Có rủi ro gian lận tiền két.")
             ]
         elif t_id == "TAG_405":
             title = "Tắc nghẽn Phễu Thu hút & Mất liên kết Khách hàng"
-            symptom = "Quán mở ra vắng tanh, khách chỉ ghé một lần rồi không quay lại, quảng cáo không hiệu quả."
+            symptom = "Cửa hàng/cơ sở mở ra vắng khách, khách chỉ ghé một lần rồi không quay lại, quảng cáo không hiệu quả."
             leak = "Lãng phí ngân sách marketing vô bổ mà không tạo ra khách hàng thân thiết bền vững."
             steps = [
-                ("Soi hiện trường", "Khảo sát trực quan mặt tiền quán từ khoảng cách 50m xem biển hiệu và lối vào có bị khuất không."),
+                ("Soi hiện trường", "Khảo sát trực quan mặt tiền cơ sở từ khoảng cách 50m xem biển hiệu và lối vào có bị khuất không."),
                 ("Cân đo / Đếm số liệu", "Đo lường tỷ lệ khách quay lại (Retention Rate) trong 30 ngày qua."),
                 ("Tiêu chuẩn đối chiếu", "Nếu tỷ lệ quay lại < 20% -> Vấn đề nằm ở chất lượng trải nghiệm lần đầu chứ không phải do thiếu quảng cáo.")
             ]
         elif t_id == "TAG_406":
-            title = "Đứt gãy Trải nghiệm Thực khách & Rối loạn Thực đơn"
-            symptom = "Khách phàn nàn đồ ăn mặn ngọt thất thường, hương vị dở, không gian bí bách nóng nực."
-            leak = "Menu quá nhiều món làm thợ quá tải, tồn kho nguyên vật liệu rối rắm và chất lượng tụt dốc."
+            title = "Đứt gãy Trải nghiệm Khách hàng & Rối loạn Danh mục"
+            symptom = "Khách phàn nàn chất lượng sản phẩm/dịch vụ thất thường, không gian bí bách nóng nực hoặc phục vụ thiếu chu đáo."
+            leak = "Danh mục sản phẩm/dịch vụ quá ôm đồm làm nhân sự quá tải, tồn kho rối rắm và chất lượng tụt dốc."
             steps = [
-                ("Soi hiện trường", "Đóng vai khách hàng ngồi ăn tại góc khuất nhất của quán vào khung giờ nóng nhất."),
-                ("Cân đo / Đếm số liệu", "Lọc ra 20% số món đóng góp 80% doanh thu và rà soát các món ế ẩm."),
-                ("Tiêu chuẩn đối chiếu", "Cắt bỏ ngay các món chiếm < 3% doanh thu nhưng đòi hỏi nguyên liệu riêng biệt khó bảo quản.")
+                ("Soi hiện trường", "Đóng vai khách hàng trực tiếp trải nghiệm tại cơ sở vào khung giờ cao điểm nhất."),
+                ("Cân đo / Đếm số liệu", "Lọc ra 20% sản phẩm/dịch vụ chủ lực đóng góp 80% doanh thu và rà soát các mặt hàng ế ẩm."),
+                ("Tiêu chuẩn đối chiếu", "Cắt bỏ ngay các mặt hàng chiếm < 3% doanh thu nhưng đòi hỏi vốn lưu động hoặc bảo quản phức tạp.")
             ]
         elif t_id == "TAG_407":
-            title = "Bẫy Phí Chiết khấu Sàn & Sập quầy Đơn App"
-            symptom = "Nổ đơn app dồn dập làm sập quầy quán phục vụ không kịp, phí chiết khấu 25-30% ăn mòn lãi."
-            leak = "Bán lấy số lượng trên app nhưng càng bán càng lỗ vì phí sàn và bao bì đóng gói đắt đỏ."
+            title = "Bẫy Phí Chiết khấu Sàn & Sập quầy Đơn App / Kênh Online"
+            symptom = "Nổ đơn app/sàn dồn dập làm tắc nghẽn quầy xử lý không kịp, phí chiết khấu và bao bì ăn mòn lợi nhuận."
+            leak = "Bán lấy số lượng trên app/sàn TMĐT nhưng càng bán càng mỏng biên lợi nhuận vì chi phí sàn và bao bì."
             steps = [
-                ("Soi hiện trường", "Theo dõi thời gian hoàn tất một đơn app từ lúc nổ chuông đến khi giao cho tài xế."),
-                ("Cân đo / Đếm số liệu", "Lấy giá bán trên app trừ 25% phí sàn và giá vốn món ăn để tính lãi ròng."),
-                ("Tiêu chuẩn đối chiếu", "Nếu biên lãi ròng trên app < 15% -> Cần thiết lập lại phổ giá trên app hoặc ngắt bớt app giờ cao điểm.")
+                ("Soi hiện trường", "Theo dõi thời gian hoàn tất một đơn app/giao hàng từ lúc nổ đơn đến khi bàn giao vận chuyển."),
+                ("Cân đo / Đếm số liệu", "Lấy giá bán trên app/sàn trừ phí sàn và giá vốn sản phẩm để tính lãi ròng thực tế."),
+                ("Tiêu chuẩn đối chiếu", "Nếu biên lãi ròng trên app < 15% -> Cần thiết lập lại phổ giá trên app hoặc tái phân bổ nhân lực giờ cao điểm.")
             ]
         else: # TAG_408
             title = "Sức ép Phá giá từ Đối thủ Sát vách"
-            symptom = "Quán bên cạnh mở ra bán phá giá rẻ hơn 5k-10k, lôi kéo khách quen của quán."
+            symptom = "Đối thủ cạnh tranh cùng khu vực mở ra bán phá giá rẻ hơn, lôi kéo khách quen của mình."
             leak = "Sa đà vào cuộc chiến hạ giá tự sát khiến quỹ dự phòng cạn kiệt nhanh chóng."
             steps = [
-                ("Soi hiện trường", "Cử người sang ăn thử món của đối thủ để đánh giá chất lượng nguyên liệu và tốc độ phục vụ."),
-                ("Cân đo / Đếm số liệu", "Tính toán khoảng giảm giá an toàn d_max của quán mình trước khi quyết định điều chỉnh."),
-                ("Tiêu chuẩn đối chiếu", "Tuyệt đối không hạ giá món chính nếu d_max <= 0; chuyển hướng sang tạo Combo bù trừ hoặc khai thác điểm yếu đối thủ.")
+                ("Soi hiện trường", "Khảo sát thực tế dịch vụ/sản phẩm của đối thủ để đánh giá chất lượng và điểm hạn chế."),
+                ("Cân đo / Đếm số liệu", "Tính toán khoảng giảm giá an toàn d_max của cơ sở mình trước khi quyết định điều chỉnh."),
+                ("Tiêu chuẩn đối chiếu", "Tuyệt đối không hạ giá sản phẩm/dịch vụ chủ lực nếu d_max <= 0; chuyển hướng sang tạo Combo bù trừ hoặc khai thác điểm yếu đối thủ.")
             ]
 
         detailed_scenarios.append({
@@ -307,7 +307,7 @@ def diagnose_business_issues(
     # Đóng gói định dạng Markdown chuẩn xuất LLM
     md_lines = [
         "### 🩺 BÁO CÁO CHẨN ĐOÁN & KỊCH BẢN KHẢ NGHI",
-        "*(Dựa trên triệu chứng bạn chia sẻ và mô hình quán, hệ thống khoanh vùng kịch bản nghi vấn lớn nhất)*",
+        "*(Dựa trên triệu chứng bạn chia sẻ và mô hình kinh doanh, hệ thống khoanh vùng kịch bản nghi vấn lớn nhất)*",
         ""
     ]
     for sc in detailed_scenarios:
@@ -317,7 +317,7 @@ def diagnose_business_issues(
             f"### 🔍 KỊCH BẢN {sc['rank']}: [{sc['scenario_title']} - {sc['badge_title']} ({sc['score']}đ)]",
             f"- **Dấu hiệu nhận biết:** {sc['symptom_description']}",
             f"- **Lỗ rò rỉ tiềm ẩn:** {sc['potential_leak']}",
-            "- **📋 Các bước tự kiểm tra tại quán trong 24h:**"
+            "- **📋 Các bước tự kiểm tra tại cơ sở trong 24h:**"
         ])
         for st in sc["checklist"]:
             md_lines.append(f"  - [ ] **Bước {st['step_num']} ({st['title']}):** {st['action']}")

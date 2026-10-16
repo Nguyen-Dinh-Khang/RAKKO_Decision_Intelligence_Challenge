@@ -135,7 +135,6 @@
     "badge_detail": "Kích hoạt Hồ sơ quán + DB2 (Đối thủ 1km) + DB5 (Sức mua) + DB4 & DB3 (Bài học tiền lệ).",
     "anchor": "Tham vấn và cân nhắc các quyết định chiến lược trong tương lai, đánh giá mức độ rủi ro hoặc nguy hiểm của một hành động dự định thực hiện, phân tích kịch bản giả định nếu thì what-if, xem xét việc điều chỉnh chính sách kinh doanh như muốn tăng giá, giảm giá, hạ giá sản phẩm, chiết khấu thương mại, thay đổi mô hình hoạt động, mở rộng phân khúc hay cắt giảm chi phí, phân tích đánh đổi trade-off được và mất xem liệu có an toàn hay không.",
     "patterns": [
-      "^nếu\\b",
       "nếu.*thì sao",
       "có nên",
       "liệu có ổn",

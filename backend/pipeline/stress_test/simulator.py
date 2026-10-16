@@ -38,10 +38,10 @@ def simulate_single_scenario(
     # 1. Tính toán Capex dự kiến & Kiểm tra điều kiện sàn
     raw_capex = budget * capex_ratio
 
-    # Kiểm tra sàn sinh tồn tối thiểu
-    if raw_capex < min_capex or budget < min_capex:
+    # Kiểm tra sàn sinh tồn tối thiểu: Chỉ khi tổng vốn không đủ ngưỡng setup tối thiểu
+    if budget < min_capex:
         # Vốn không đủ chạm ngưỡng setup tối thiểu -> month = 0
-        actual_capex = min(raw_capex, max_capex) if raw_capex > 0 else min_capex
+        actual_capex = min_capex
         salary_total = staff_count * staff_salary_per_person
         contingency_fund = budget * contingency_ratio
         monthly_fixed_cost = rent + salary_total + utilities_cost + contingency_fund
@@ -57,8 +57,8 @@ def simulate_single_scenario(
             "monthly_fixed_cost": round(monthly_fixed_cost, 0)
         }
 
-    # Kẹp trong khoảng Sàn và Trần
-    actual_capex = min(raw_capex, max_capex)
+    # Kẹp trong khoảng Sàn và Trần: Nếu raw_capex < min_capex thì dùng min_capex, không vượt quá max_capex
+    actual_capex = max(min_capex, min(raw_capex, max_capex))
 
     # 2. Tính toán Chi phí định phí mỗi tháng (Monthly Recurring Cost)
     salary_total = staff_count * staff_salary_per_person

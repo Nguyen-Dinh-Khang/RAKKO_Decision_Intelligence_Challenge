@@ -11,93 +11,88 @@ import { CheckSquare, Square, ChevronRight, Quote, MessageCircle, HelpCircle, Cl
  * 5. Trích dẫn / Lời thoại "> " hoặc "Lời thoại:": Đóng khung hội thoại nổi bật
  * 6. Danh sách số "1. ", "2. ": Đánh số màu xanh nổi bật
  */
+/**
+ * Phân tích các định dạng nội dòng (Inline Formatting):
+ * - **chữ đậm ở đầu dòng** (Lead-in Bold) -> font-black text-slate-950 text-[13.5px] sm:text-sm
+ * - **chữ đậm trong câu** -> font-bold text-slate-900 (không nền, không viền)
+ * - *chữ nghiêng* -> <em>
+ * - `code` -> <code>
+ */
+export const renderInline = (text, checkLeadIn = false) => {
+  if (!text || typeof text !== 'string') return text || null;
+
+  const inlineRegex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
+  const tokens = text.split(inlineRegex);
+
+  // Xác định xem token bold đầu tiên có phải là đầu dòng (Lead-in) hay không
+  let firstBoldIndex = -1;
+  if (checkLeadIn) {
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i];
+      if (tok && typeof tok === 'string' && tok.startsWith('**') && tok.endsWith('**') && tok.length >= 4) {
+        const prefix = tokens.slice(0, i).join('').trim();
+        // Nếu trước token bold chỉ là chuỗi rỗng hoặc ký tự đầu dòng
+        if (prefix === '' || prefix === '-' || prefix === '*' || prefix === '+') {
+          firstBoldIndex = i;
+        }
+        break;
+      }
+    }
+  }
+
+  return tokens.map((token, i) => {
+    if (!token || typeof token !== 'string') return token || null;
+    if (token.startsWith('**') && token.endsWith('**') && token.length >= 4) {
+      const innerText = token.slice(2, -2);
+      const isLeadIn = (i === firstBoldIndex);
+
+      if (isLeadIn) {
+        return (
+          <strong key={i} className="font-black text-slate-950 text-sm sm:text-[13.5px] tracking-tight inline-block mr-1">
+            {innerText}
+          </strong>
+        );
+      }
+
+      return (
+        <strong key={i} className="font-bold text-slate-800">
+          {innerText}
+        </strong>
+      );
+    } else if (token.startsWith('*') && token.endsWith('*') && token.length >= 2) {
+      const innerText = token.slice(1, -1);
+      return (
+        <em key={i} className="italic text-slate-700">
+          {innerText}
+        </em>
+      );
+    } else if (token.startsWith('`') && token.endsWith('`') && token.length >= 2) {
+      const innerText = token.slice(1, -1);
+      return (
+        <code key={i} className="font-mono text-xs bg-slate-100 text-blue-700 px-1.5 py-0.5 rounded border border-slate-200">
+          {innerText}
+        </code>
+      );
+    }
+    return token;
+  });
+};
+
 export default function FormattedMarkdown({ content, className = '' }) {
   if (!content) return null;
 
   // State lưu trữ các checkbox người dùng đã tick chọn
   const [checkedItems, setCheckedItems] = useState({});
 
-  const toggleCheck = (idx) => {
-    setCheckedItems(prev => ({
-      ...prev,
-      [idx]: !prev[idx]
-    }));
-  };
-
-  /**
-   * Phân tích các định dạng nội dòng (Inline Formatting):
-   * - **chữ đậm** -> <strong>
-   * - *chữ nghiêng* -> <em>
-   * - `code` -> <code>
-   * - "lời thoại trong ngoặc kép" -> highlight
-   */
-  /**
-   * Phân tích các định dạng nội dòng (Inline Formatting):
-   * - **chữ đậm ở đầu dòng** (Lead-in Bold) -> font-black text-slate-950 text-[13.5px] sm:text-sm (tăng kích thước nhẹ làm tiêu đề con)
-   * - **chữ đậm trong câu** -> font-bold text-slate-900 (không nền, không viền)
-   * - *chữ nghiêng* -> <em>
-   * - `code` -> <code>
-   */
-  const renderInline = (text, checkLeadIn = false) => {
-    if (!text || typeof text !== 'string') return text || null;
-
-    const inlineRegex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
-    const tokens = text.split(inlineRegex);
-
-    // Xác định xem token bold đầu tiên có phải là đầu dòng (Lead-in) hay không
-    let firstBoldIndex = -1;
-    if (checkLeadIn) {
-      for (let i = 0; i < tokens.length; i++) {
-        const tok = tokens[i];
-        if (tok && typeof tok === 'string' && tok.startsWith('**') && tok.endsWith('**') && tok.length >= 4) {
-          const prefix = tokens.slice(0, i).join('').trim();
-          // Nếu trước token bold chỉ là chuỗi rỗng hoặc ký tự đầu dòng
-          if (prefix === '' || prefix === '-' || prefix === '*' || prefix === '+') {
-            firstBoldIndex = i;
-          }
-          break;
-        }
-      }
-    }
-
-    return tokens.map((token, i) => {
-      if (!token || typeof token !== 'string') return token || null;
-      if (token.startsWith('**') && token.endsWith('**') && token.length >= 4) {
-        const innerText = token.slice(2, -2);
-        const isLeadIn = (i === firstBoldIndex);
-
-        if (isLeadIn) {
-          return (
-            <strong key={i} className="font-black text-slate-950 text-sm sm:text-[13.5px] tracking-tight inline-block mr-1">
-              {innerText}
-            </strong>
-          );
-        }
-
-        return (
-          <strong key={i} className="font-bold text-slate-800">
-            {innerText}
-          </strong>
-        );
-      } else if (token.startsWith('*') && token.endsWith('*') && token.length >= 2) {
-        const innerText = token.slice(1, -1);
-        return (
-          <em key={i} className="italic text-slate-700">
-            {innerText}
-          </em>
-        );
-      } else if (token.startsWith('`') && token.endsWith('`') && token.length >= 2) {
-        const innerText = token.slice(1, -1);
-        return (
-          <code key={i} className="font-mono text-xs bg-slate-100 text-blue-700 px-1.5 py-0.5 rounded border border-slate-200">
-            {innerText}
-          </code>
-        );
-      }
-      return token;
+  const toggleCheck = (key, initialChecked = false) => {
+    setCheckedItems(prev => {
+      const current = prev[key] !== undefined ? prev[key] : initialChecked;
+      return {
+        ...prev,
+        [key]: !current
+      };
     });
   };
-
   const isWhyReason = (text) => {
     if (!text || typeof text !== 'string') return false;
     const lower = text.toLowerCase().trim();
@@ -107,6 +102,26 @@ export default function FormattedMarkdown({ content, className = '' }) {
            lower.startsWith('vì sao') ||
            lower.startsWith('**vì sao') ||
            lower.includes('tại sao:');
+  };
+
+  /**
+   * Nhận diện và bóc tách dòng checklist/checkbox:
+   * Hỗ trợ mọi biến thể markdown mà LLM có thể sinh ra:
+   * 1. Tiền tố: '-', '*', '+', số dạng '1.', '2.', hoặc không có tiền tố
+   * 2. Cặp ngoặc: '[ ]', '[]' (ngoặc rỗng không có dấu cách), '[  ]', '[x]', '[X]', '[v]', '[V]', '[✓]'
+   * 3. Khoảng cách: có hoặc không có khoảng trắng sau dấu ngoặc
+   */
+  const parseCheckboxLine = (str) => {
+    if (!str || typeof str !== 'string') return null;
+    const trimmed = str.trim();
+    const match = trimmed.match(/^(?:(?:[-*+]|\d+\.)\s*)?\[\s*([xXvV\u2713\u2714]?)\s*\]\s*(.*)$/);
+    if (!match) return null;
+
+    const mark = (match[1] || '').trim();
+    const isChecked = mark.length > 0;
+    const text = match[2] || '';
+
+    return { isChecked, text };
   };
 
   /**
@@ -120,8 +135,7 @@ export default function FormattedMarkdown({ content, className = '' }) {
 
     // Bỏ qua nếu là checkbox hoặc quote hoặc separator
     if (
-      trimmed.startsWith('- [') || trimmed.startsWith('* [') || trimmed.startsWith('+ [') || 
-      trimmed.startsWith('[') || trimmed.startsWith('>') || trimmed === '---' || trimmed === '***'
+      parseCheckboxLine(trimmed) || trimmed.startsWith('>') || trimmed === '---' || trimmed === '***'
     ) {
       return null;
     }
@@ -329,21 +343,17 @@ export default function FormattedMarkdown({ content, className = '' }) {
           return <div key={idx} className="h-1.5" />;
         }
 
-        // 6. CHECKBOX INTERACTIVE: "- [ ]", "* [ ]", "+ [ ]", "[ ]", v.v.
-        if (
-          trimmed.startsWith('- [ ] ') || trimmed.startsWith('- [x] ') ||
-          trimmed.startsWith('* [ ] ') || trimmed.startsWith('* [x] ') ||
-          trimmed.startsWith('+ [ ] ') || trimmed.startsWith('+ [x] ') ||
-          trimmed.startsWith('[ ] ') || trimmed.startsWith('[x] ')
-        ) {
-          const isInitiallyChecked = trimmed.includes('[x]');
+        // 6. CHECKBOX INTERACTIVE: "- [ ]", "- []", "* [ ]", "1. [ ]", "[ ]", v.v.
+        const checkboxInfo = parseCheckboxLine(trimmed);
+        if (checkboxInfo) {
+          const isInitiallyChecked = checkboxInfo.isChecked;
           const isChecked = checkedItems[lineKey] !== undefined ? checkedItems[lineKey] : isInitiallyChecked;
-          const cleanText = trimmed.replace(/^([-*+]\s*)?\[(x|\s)\]\s*/i, '');
+          const cleanText = checkboxInfo.text;
 
           return (
             <div 
               key={idx} 
-              onClick={() => toggleCheck(lineKey)}
+              onClick={() => toggleCheck(lineKey, isInitiallyChecked)}
               className={`flex items-start space-x-3 p-2.5 my-1.5 rounded-xl border transition-all cursor-pointer select-none ${
                 isChecked
                   ? 'bg-slate-50 border-emerald-300 text-emerald-900'
