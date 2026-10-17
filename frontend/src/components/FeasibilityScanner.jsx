@@ -29,7 +29,7 @@ const MODEL_PRODUCT_COMPATIBILITY = {
  * Chạy trọn vẹn pipeline 5 mắt xích và trả về bản phân tích 5 khối chuyên sâu.
  * Hỗ trợ lưu trữ mô hình (1xx), món định bán (2xx), địa chỉ, tọa độ và kế sách vào hồ sơ cá nhân.
  */
-export default function FeasibilityScanner({ metadata, currentUser, savedStrategy, onStrategySaved }) {
+export default function FeasibilityScanner({ metadata, currentUser, savedStrategy, onStrategySaved, llmConfig }) {
   // Form State - Không điền sẵn dữ liệu, chỉ hiển thị placeholder
   const [address, setAddress] = useState('');
   const [modelId, setModelId] = useState('');
@@ -306,7 +306,8 @@ export default function FeasibilityScanner({ metadata, currentUser, savedStrateg
           model_id: parseInt(modelId),
           product_ids: selectedProductIds,
           budget: parseFloat(budget),
-          rent: parseFloat(rent)
+          rent: parseFloat(rent),
+          llm_config: llmConfig
         })
       });
 

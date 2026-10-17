@@ -31,7 +31,7 @@ DB_NAME = os.getenv("DB_NAME", "MLAI_Hackathon_2026")
 # Cấu hình Máy chủ LLM Ollama (Tự động fallback giữa Server 11435 và Local 11434)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11435")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen3.5:4b")
-NUM_CTX = int(os.getenv("NUM_CTX", "20480"))
+NUM_CTX = int(os.getenv("NUM_CTX", "10480"))
 
 # Cấu hình Mô hình Vector Embedding (BAAI/bge-m3 Quantization)
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")

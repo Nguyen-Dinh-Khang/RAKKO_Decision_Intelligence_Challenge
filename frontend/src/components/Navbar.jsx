@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Compass, MessageSquareText, Store, User, LogIn, LogOut, X, Lock } from 'lucide-react';
+import { Compass, MessageSquareText, Store, User, LogIn, LogOut, X, Lock, Key, Cpu, Cloud } from 'lucide-react';
+import ApiKeyModal from './ApiKeyModal';
 
 /**
  * Navbar - Thanh điều hướng chính của Nền tảng Ra quyết định
@@ -8,14 +9,18 @@ import { Compass, MessageSquareText, Store, User, LogIn, LogOut, X, Lock } from 
  * - Giao diện 2: Trợ lý Chiến thuật Đồng hành (Day 1 - 365)
  * - Quản lý tài khoản người dùng: Đăng nhập / Đăng ký / Lưu kế sách
  */
-export default function Navbar({ activeTab, setActiveTab, systemStatus, currentUser, onLoginSuccess, onLogout }) {
+export default function Navbar({ activeTab, setActiveTab, systemStatus, currentUser, onLoginSuccess, onLogout, llmConfig, onUpdateLlmConfig }) {
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState(null);
+
+  const isCloudMode = llmConfig?.mode === 'cloud' && Boolean(llmConfig?.api_key);
+
 
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -118,8 +123,31 @@ export default function Navbar({ activeTab, setActiveTab, systemStatus, currentU
               </button>
             </div>
 
-            {/* Tài khoản Người dùng */}
+            {/* Chuyển luồng AI & Tài khoản Người dùng */}
             <div className="flex items-center space-x-2 text-xs shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowApiKeyModal(true)}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border font-bold text-xs transition ${
+                  isCloudMode
+                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                    : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                }`}
+                title="Đổi nguồn sinh văn bản: Local Ollama hoặc Cloud API Key cá nhân"
+              >
+                {isCloudMode ? (
+                  <Cloud className="w-3.5 h-3.5 text-indigo-600" />
+                ) : (
+                  <Cpu className="w-3.5 h-3.5 text-slate-600" />
+                )}
+                <span className="hidden lg:inline">
+                  {isCloudMode
+                    ? `API: ${(llmConfig?.provider || 'gemini').toUpperCase()}`
+                    : 'Local AI'}
+                </span>
+                <Key className="w-3 h-3 opacity-60" />
+              </button>
+
               {currentUser ? (
                 <div className="flex items-center space-x-2">
                   <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-xs">
@@ -276,6 +304,15 @@ export default function Navbar({ activeTab, setActiveTab, systemStatus, currentU
           </div>
         </div>
       )}
+
+      {/* MODAL CẤU HÌNH NGUỒN AI (LOCAL OLLAMA / CLOUD API KEY) */}
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        llmConfig={llmConfig}
+        onSaveConfig={onUpdateLlmConfig}
+        localModelName={systemStatus?.llm_model}
+      />
     </>
   );
 }

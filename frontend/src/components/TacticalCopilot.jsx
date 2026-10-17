@@ -12,7 +12,7 @@ import TacticalPlaybookModal from './TacticalPlaybookModal';
  * TacticalCopilot - Giao diện 2: Trợ lý Chiến thuật Đồng hành (Day 1 - 365)
  * Cố vấn tác chiến, giải quyết sự cố, cạnh tranh và chẩn đoán hiệu quả kinh doanh
  */
-export default function TacticalCopilot({ metadata, currentUser, savedStrategy }) {
+export default function TacticalCopilot({ metadata, currentUser, savedStrategy, llmConfig }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [chatInput, setChatInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -319,7 +319,8 @@ export default function TacticalCopilot({ metadata, currentUser, savedStrategy }
           coordinates: savedStrategy?.coordinates,
           product_ids: savedStrategy?.product_ids || [],
           customer_segment_ids: savedStrategy?.customer_segment_ids || (savedStrategy?.profile?.customer_segment_ids || []),
-          conversation_history: convHistory
+          conversation_history: convHistory,
+          llm_config: llmConfig
         })
       });
 

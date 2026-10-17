@@ -20,6 +20,26 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [savedStrategy, setSavedStrategy] = useState(null);
 
+  // Cấu hình nguồn LLM (Local Ollama hoặc Cloud API Key)
+  const [llmConfig, setLlmConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mlai_llm_config');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return { mode: 'local', provider: 'gemini', api_key: '', model: 'gemini-2.5-flash' };
+  });
+
+  const handleUpdateLlmConfig = (newCfg) => {
+    setLlmConfig(newCfg);
+    try {
+      localStorage.setItem('mlai_llm_config', JSON.stringify(newCfg));
+    } catch {
+      // ignore
+    }
+  };
+
   // Tải Kế sách chiến lược đang áp dụng của người dùng từ MongoDB
   const fetchActiveStrategy = async (token) => {
     try {
@@ -113,6 +133,8 @@ export default function App() {
         currentUser={currentUser}
         onLoginSuccess={handleLoginSuccess}
         onLogout={handleLogout}
+        llmConfig={llmConfig}
+        onUpdateLlmConfig={handleUpdateLlmConfig}
       />
 
       {/* 2. Vùng nội dung chính */}
@@ -131,6 +153,7 @@ export default function App() {
                 currentUser={currentUser}
                 savedStrategy={savedStrategy}
                 onStrategySaved={(newStrat) => setSavedStrategy(newStrat)}
+                llmConfig={llmConfig}
               />
             )}
 
@@ -139,6 +162,7 @@ export default function App() {
                 metadata={metadata}
                 currentUser={currentUser}
                 savedStrategy={savedStrategy}
+                llmConfig={llmConfig}
               />
             )}
 

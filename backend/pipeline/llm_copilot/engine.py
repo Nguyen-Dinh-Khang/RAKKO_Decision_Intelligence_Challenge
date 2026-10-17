@@ -181,6 +181,44 @@ class LLMCopilot:
             )
 
 
+    def _dispatch_call(
+        self,
+        prompt: str,
+        temperature: float = 0.3,
+        system: Optional[str] = None,
+        llm_config: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Điều phối suy luận đồng bộ: Cloud API Key (nếu bật) hoặc Local Ollama (mặc định)."""
+        from .cloud_provider import is_cloud_config_active, call_cloud_llm
+        if is_cloud_config_active(llm_config):
+            return call_cloud_llm(
+                llm_config=llm_config,
+                prompt=prompt,
+                system=system or SYSTEM_PROMPT,
+                temperature=temperature
+            )
+        return self._call_ollama(prompt, temperature=temperature, system=system)
+
+    def _dispatch_stream(
+        self,
+        prompt: str,
+        temperature: float = 0.25,
+        system: Optional[str] = None,
+        llm_config: Optional[Dict[str, Any]] = None
+    ) -> Generator[str, None, None]:
+        """Điều phối suy luận SSE Streaming: Cloud API Key (nếu bật) hoặc Local Ollama (mặc định)."""
+        from .cloud_provider import is_cloud_config_active, stream_cloud_llm
+        if is_cloud_config_active(llm_config):
+            yield from stream_cloud_llm(
+                llm_config=llm_config,
+                prompt=prompt,
+                system=system or SYSTEM_PROMPT,
+                temperature=temperature
+            )
+            return
+        for token in self._stream_ollama(prompt, temperature=temperature, system=system):
+            yield token
+
     def evaluate_feasibility(
         self,
         form_data: Dict[str, Any],
@@ -188,7 +226,8 @@ class LLMCopilot:
         competitors: List[Dict[str, Any]],
         market_gaps: Dict[str, Any],
         stress_test: Any,
-        tactical_playbook: Optional[Dict[str, Any]] = None
+        tactical_playbook: Optional[Dict[str, Any]] = None,
+        llm_config: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Chế độ 1: Thẩm định Ý tưởng (Day 0) - Bộ não Cố vấn Chiến lược và Tác chiến
@@ -203,7 +242,7 @@ class LLMCopilot:
             stress_test=stress_test,
             tactical_playbook=tactical_playbook
         )
-        return self._call_ollama(prompt, temperature=0.3, system=system_prompt)
+        return self._dispatch_call(prompt, temperature=0.3, system=system_prompt, llm_config=llm_config)
 
     def stream_evaluate_feasibility(
         self,
@@ -212,7 +251,8 @@ class LLMCopilot:
         competitors: List[Dict[str, Any]],
         market_gaps: Dict[str, Any],
         stress_test: Any,
-        tactical_playbook: Optional[Dict[str, Any]] = None
+        tactical_playbook: Optional[Dict[str, Any]] = None,
+        llm_config: Optional[Dict[str, Any]] = None
     ) -> Generator[str, None, None]:
         """
         Chế độ 1 streaming (SSE): Đẩy từng token phân tích thẩm định của Qwen3.5 4B theo thời gian thực.
@@ -226,7 +266,7 @@ class LLMCopilot:
             stress_test=stress_test,
             tactical_playbook=tactical_playbook
         )
-        for token in self._stream_ollama(prompt, temperature=0.3, system=system_prompt):
+        for token in self._dispatch_stream(prompt, temperature=0.3, system=system_prompt, llm_config=llm_config):
             yield token
 
     def _build_tactical_prompt(
@@ -263,7 +303,8 @@ class LLMCopilot:
         context_markdown: str,
         intent: str = "INTERNAL",
         branch: Optional[str] = None,
-        conversation_history: Optional[List[Dict[str, str]]] = None
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        llm_config: Optional[Dict[str, Any]] = None
     ) -> str:
         """Chế độ 2 đồng bộ: Trả về toàn bộ câu trả lời dạng chuỗi theo 5 nhánh chuyên biệt."""
         prompt, system_prompt = self._build_tactical_prompt(
@@ -274,7 +315,7 @@ class LLMCopilot:
             branch=branch,
             conversation_history=conversation_history
         )
-        return self._call_ollama(prompt, temperature=0.25, system=system_prompt)
+        return self._dispatch_call(prompt, temperature=0.25, system=system_prompt, llm_config=llm_config)
 
     def stream_tactical_copilot(
         self,
@@ -283,7 +324,8 @@ class LLMCopilot:
         context_markdown: str,
         intent: str = "INTERNAL",
         branch: Optional[str] = None,
-        conversation_history: Optional[List[Dict[str, str]]] = None
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        llm_config: Optional[Dict[str, Any]] = None
     ) -> Generator[str, None, None]:
         """Chế độ 2 streaming (SSE): Đẩy từng token theo thời gian thực theo 5 nhánh chuyên biệt."""
         prompt, system_prompt = self._build_tactical_prompt(
@@ -294,5 +336,6 @@ class LLMCopilot:
             branch=branch,
             conversation_history=conversation_history
         )
-        for token in self._stream_ollama(prompt, temperature=0.25, system=system_prompt):
+        for token in self._dispatch_stream(prompt, temperature=0.25, system=system_prompt, llm_config=llm_config):
             yield token
+

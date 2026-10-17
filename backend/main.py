@@ -105,6 +105,14 @@ async def preload_embedding_cache():
 # PYDANTIC SCHEMAS (ĐẶC TẢ DỮ LIỆU ĐẦU VÀO)
 # =====================================================================
 
+class LLMConfigPayload(BaseModel):
+    """Cấu hình chuyển luồng LLM (Local Ollama hoặc Cloud API Key cá nhân)"""
+    mode: Optional[str] = Field("local", description="Chế độ chạy LLM: 'local' hoặc 'cloud'")
+    provider: Optional[str] = Field("gemini", description="Nhà cung cấp Cloud: 'gemini', 'openai', 'groq', 'deepseek', 'openrouter'")
+    api_key: Optional[str] = Field(None, description="API Key cá nhân của người dùng")
+    model: Optional[str] = Field(None, description="Tên model tùy chọn")
+
+
 class FeasibilityRequest(BaseModel):
     """Dữ liệu Form thẩm định ý tưởng (Giao diện 1)"""
     address: str = Field(..., description="Địa chỉ dự kiến mở quán")
@@ -112,6 +120,7 @@ class FeasibilityRequest(BaseModel):
     product_ids: List[int] = Field(..., description="Danh sách mã nhóm sản phẩm (201 - 220)")
     budget: float = Field(..., description="Số vốn hiện có (VNĐ)")
     rent: Optional[float] = Field(None, description="Tiền thuê mặt bằng dự kiến (VNĐ/tháng)")
+    llm_config: Optional[LLMConfigPayload] = Field(None, description="Cấu hình nguồn LLM tùy chọn")
 
 
 class CopilotChatRequest(BaseModel):
@@ -124,6 +133,8 @@ class CopilotChatRequest(BaseModel):
     customer_segment_ids: Optional[List[int]] = Field(None, description="Danh sách mã phân khúc khách hàng chủ đạo (301 - 304)")
     conversation_history: Optional[List[Dict[str, str]]] = Field(None, description="Lịch sử đối thoại trước đó")
     mode: Optional[str] = Field(None, description="Chế độ kiểm thử: 'part_1' (định tuyến 5 nhánh) hoặc 'full'")
+    llm_config: Optional[LLMConfigPayload] = Field(None, description="Cấu hình nguồn LLM tùy chọn")
+
 
 
 class RegisterRequest(BaseModel):
@@ -762,6 +773,25 @@ def health_check():
     }
 
 
+@app.post("/api/llm/verify")
+def verify_llm_config(req: LLMConfigPayload):
+    """Kiểm tra nhanh kết nối API Key và Model của người dùng."""
+    from .pipeline.llm_copilot.cloud_provider import verify_cloud_api_key
+    is_valid, resolved_model, msg = verify_cloud_api_key(
+        provider=req.provider or "gemini",
+        api_key=req.api_key or "",
+        model=req.model
+    )
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=msg)
+    return {
+        "status": "success",
+        "provider": req.provider or "gemini",
+        "model": resolved_model,
+        "message": msg
+    }
+
+
 @app.get("/api/metadata")
 def get_metadata():
     """
@@ -888,7 +918,8 @@ def evaluate_business_feasibility(req: FeasibilityRequest):
             competitors=competitors,
             market_gaps=market_analysis,
             stress_test=stress_test,
-            tactical_playbook=tactical_playbook
+            tactical_playbook=tactical_playbook,
+            llm_config=req.llm_config.model_dump() if req.llm_config else None
         )
 
         # Kiểm tra sức sống vốn (Runway): Nếu cạn vốn ngay ngày đầu (<= 0), không gửi thông tin đối thủ, tấn công 3 mảng & playbook
@@ -1181,7 +1212,7 @@ def evaluate_business_feasibility_stream(req: FeasibilityRequest):
             # Pha 1: Bắn ngay lập tức toàn bộ số liệu logic tính toán ra Frontend
             yield f"data: {json.dumps(logic_results_event, ensure_ascii=False)}\n\n"
 
-            # Pha 2: Streaming từng chữ / token từ LLM Qwen3.5 4B qua Ollama
+            # Pha 2: Streaming từng chữ / token từ LLM Qwen3.5 4B qua Ollama (hoặc Cloud API Key)
             try:
                 for token in llm_copilot.stream_evaluate_feasibility(
                     form_data=form_summary,
@@ -1189,7 +1220,8 @@ def evaluate_business_feasibility_stream(req: FeasibilityRequest):
                     competitors=competitors,
                     market_gaps=market_analysis,
                     stress_test=stress_test,
-                    tactical_playbook=tactical_playbook
+                    tactical_playbook=tactical_playbook,
+                    llm_config=req.llm_config.model_dump() if req.llm_config else None
                 ):
                     yield f"data: {json.dumps({'type': 'chunk', 'text': token}, ensure_ascii=False)}\n\n"
             except Exception as stream_err:
@@ -1622,7 +1654,8 @@ def copilot_chat(req: CopilotChatRequest, authorization: Optional[str] = Header(
             context_markdown=context_md,
             intent=intent,
             branch=branch_id,
-            conversation_history=req.conversation_history
+            conversation_history=req.conversation_history,
+            llm_config=req.llm_config.model_dump() if req.llm_config else None
         )
 
         return {
@@ -1856,14 +1889,15 @@ def copilot_chat_stream(req: CopilotChatRequest, authorization: Optional[str] = 
             }
             yield f"data: {json.dumps(meta_event, ensure_ascii=False)}\n\n"
 
-            # 2. Streaming từng token từ LLM Qwen3.5 4B qua Ollama theo 5 nhánh chuyên biệt
+            # 2. Streaming từng token từ LLM Qwen3.5 4B qua Ollama (hoặc Cloud API Key) theo 5 nhánh chuyên biệt
             for token in llm_copilot.stream_tactical_copilot(
                 user_query=query_text,
                 model_name=model_name,
                 context_markdown=context_md,
                 intent=intent,
                 branch=branch_id,
-                conversation_history=req.conversation_history
+                conversation_history=req.conversation_history,
+                llm_config=req.llm_config.model_dump() if req.llm_config else None
             ):
                 yield f"data: {json.dumps({'type': 'chunk', 'text': token}, ensure_ascii=False)}\n\n"
 
