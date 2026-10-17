@@ -6,38 +6,46 @@ const PROVIDERS = [
     id: 'gemini',
     name: 'Google Gemini',
     defaultModel: 'gemini-3.8-flash',
-    models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
+    models: ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'],
     placeholderKey: 'AIzaSy...'
   },
   {
     id: 'openai',
     name: 'OpenAI',
-    defaultModel: 'gpt-4o-mini',
-    models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+    defaultModel: 'gpt-6-luna',
+    models: ['gpt-6-luna', 'gpt-6.1-sol', 'gpt-6-astra'],
     placeholderKey: 'sk-...'
   },
   {
     id: 'groq',
     name: 'Groq Cloud',
-    defaultModel: 'llama-3.3-70b-versatile',
-    models: ['llama-3.3-70b-versatile', 'qwen-qwq-32b', 'gemma2-9b-it'],
+    defaultModel: 'openai/gpt-oss-120b',
+    models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
     placeholderKey: 'gsk_...'
   },
   {
     id: 'deepseek',
     name: 'DeepSeek',
-    defaultModel: 'deepseek-chat',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
+    defaultModel: 'deepseek-flash',
+    models: ['deepseek-flash'],
     placeholderKey: 'sk-...'
   },
   {
     id: 'openrouter',
     name: 'OpenRouter',
-    defaultModel: 'google/gemini-2.5-flash',
-    models: ['google/gemini-2.5-flash', 'openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet'],
+    defaultModel: 'google/gemini-3.8-flash',
+    models: ['google/gemini-3.8-flash', 'deepseek/deepseek-v4.1-flash', 'openai/gpt-6-luna'],
     placeholderKey: 'sk-or-v1-...'
   }
 ];
+
+const REPLACED_MODELS = {
+  gemini: new Set(['gemini-3.7-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash']),
+  openai: new Set(['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini']),
+  groq: new Set(['qwen-qwq-32b', 'gemma2-9b-it']),
+  deepseek: new Set(['deepseek-chat', 'deepseek-reasoner']),
+  openrouter: new Set(['google/gemini-2.5-flash', 'openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet'])
+};
 
 /**
  * ApiKeyModal - Hộp thoại chuyển đổi luồng sinh văn bản (Local Ollama <-> Cloud API Key)
@@ -54,10 +62,17 @@ export default function ApiKeyModal({ isOpen, onClose, llmConfig, onSaveConfig, 
 
   useEffect(() => {
     if (isOpen && llmConfig) {
+      const savedProvider = llmConfig.provider || 'gemini';
+      const providerConfig = PROVIDERS.find((p) => p.id === savedProvider) || PROVIDERS[0];
       setMode(llmConfig.mode || 'local');
-      setProvider(llmConfig.provider || 'gemini');
+      setProvider(savedProvider);
       setApiKey(llmConfig.api_key || '');
-      setModel(llmConfig.model || 'gemini-3.8-flash');
+      const savedModel = llmConfig.model || '';
+      setModel(
+        REPLACED_MODELS[savedProvider]?.has(savedModel)
+          ? providerConfig.defaultModel
+          : savedModel || providerConfig.defaultModel
+      );
       setVerifyStatus(null);
     }
   }, [isOpen, llmConfig]);
@@ -67,7 +82,10 @@ export default function ApiKeyModal({ isOpen, onClose, llmConfig, onSaveConfig, 
   const activeProviderObj = PROVIDERS.find((p) => p.id === provider) || PROVIDERS[0];
 
   const handleProviderChange = (newProviderId) => {
+    if (newProviderId === provider) return;
     setProvider(newProviderId);
+    // A configured key belongs to the current provider; never carry it into another provider's field.
+    setApiKey('');
     const found = PROVIDERS.find((p) => p.id === newProviderId);
     if (found) {
       setModel(found.defaultModel);

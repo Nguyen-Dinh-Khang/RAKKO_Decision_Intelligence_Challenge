@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = {
     "gemini": "gemini-3.8-flash",
-    "openai": "gpt-4o-mini",
-    "groq": "llama-3.3-70b-versatile",
-    "deepseek": "deepseek-chat",
-    "openrouter": "google/gemini-2.5-flash"
+    "openai": "gpt-6-luna",
+    "groq": "openai/gpt-oss-120b",
+    "deepseek": "deepseek-flash",
+    "openrouter": "google/gemini-3.8-flash"
 }
 
 
@@ -168,6 +168,12 @@ def _call_openai_compat_sync(
         "max_tokens": 4096,
         "stream": False
     }
+    model_id = model.rsplit("/", 1)[-1]
+    if provider in ("openai", "openrouter") and model_id in {"gpt-6-luna", "gpt-6-sol"}:
+        payload["reasoning_effort"] = "none"
+    elif provider in ("openai", "openrouter") and model_id in {"gpt-6-astra", "gpt-6.1-sol"}:
+        payload.pop("temperature", None)
+        payload.pop("top_p", None)
     response = requests.post(url, headers=headers, json=payload, timeout=120)
     if response.status_code != 200:
         err_msg = _extract_error_message(response)
@@ -199,6 +205,12 @@ def _stream_openai_compat(
         "max_tokens": 4096,
         "stream": True
     }
+    model_id = model.rsplit("/", 1)[-1]
+    if provider in ("openai", "openrouter") and model_id in {"gpt-6-luna", "gpt-6-sol"}:
+        payload["reasoning_effort"] = "none"
+    elif provider in ("openai", "openrouter") and model_id in {"gpt-6-astra", "gpt-6.1-sol"}:
+        payload.pop("temperature", None)
+        payload.pop("top_p", None)
     with requests.post(url, headers=headers, json=payload, stream=True, timeout=120) as response:
         if response.status_code != 200:
             err_msg = _extract_error_message(response)
