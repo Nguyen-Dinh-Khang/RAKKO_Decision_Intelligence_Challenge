@@ -39,7 +39,6 @@ yarn-error.log*
 .pnpm-debug.log*
 frontend/.vite/
 .vite/
-dist/
 
 # 5. Logs & File tạm thời
 *.log
