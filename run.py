@@ -5,6 +5,8 @@ Cách chạy từ thư mục gốc MLAI:
 """
 
 import sys
+import shutil
+import subprocess
 from pathlib import Path
 
 # Đảm bảo console Windows in tiếng Việt UTF-8
@@ -26,7 +28,25 @@ if str(PARENT_DIR) not in sys.path:
 import uvicorn
 from backend.config import PORT, HOST, LLM_MODEL, NUM_CTX, EMBEDDING_QUANTIZATION, DEVICE
 
+
+def build_frontend():
+    """Install frontend dependencies when absent, then rebuild the production bundle."""
+    frontend_dir = CURRENT_DIR / "frontend"
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    if not npm:
+        raise SystemExit("Không tìm thấy npm. Hãy cài Node.js rồi chạy lại ứng dụng.")
+
+    if not (frontend_dir / "node_modules" / "vite" / "package.json").is_file():
+        print("[*] Chưa có frontend dependencies; đang chạy npm ci...")
+        subprocess.run([npm, "ci"], cwd=frontend_dir, check=True)
+
+    print("[*] Đang build frontend production...")
+    subprocess.run([npm, "run", "build"], cwd=frontend_dir, check=True)
+
+
 if __name__ == "__main__":
+    build_frontend()
+
     print("\n" + "=" * 75)
     print("🚀 NỀN TẢNG RA QUYẾT ĐỊNH & TRỢ LÝ KINH DOANH THỰC CHIẾN (CLIENT APP)")
     print(f"👉 Ứng dụng Web (React Frontend): http://localhost:{PORT}")

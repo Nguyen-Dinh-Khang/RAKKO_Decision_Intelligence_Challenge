@@ -205,6 +205,8 @@ def _stream_openai_compat(
             yield f"\n\n⚠️ Lỗi từ {provider.upper()} API ({response.status_code}): {err_msg}"
             return
 
+        # requests otherwise guesses ISO-8859-1 for text/event-stream, corrupting Vietnamese UTF-8.
+        response.encoding = "utf-8"
         for line in response.iter_lines(decode_unicode=True):
             if not line:
                 continue
