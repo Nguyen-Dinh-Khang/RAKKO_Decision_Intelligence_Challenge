@@ -17,12 +17,22 @@ from typing import Dict, Any, Optional, Generator, Tuple
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODELS = {
-    "gemini": "gemini-2.5-flash",
+    "gemini": "gemini-3.8-flash",
     "openai": "gpt-4o-mini",
     "groq": "llama-3.3-70b-versatile",
     "deepseek": "deepseek-chat",
     "openrouter": "google/gemini-2.5-flash"
 }
+
+
+def _gemini_system_text(system: str) -> str:
+    """Keep Gemini's final user-facing answer in natural Vietnamese."""
+    return (
+        f"{system.strip()}\n\n"
+        "YÊU CẦU NGÔN NGỮ ĐẦU RA: Trả lời bằng tiếng Việt tự nhiên, rõ ràng, đúng dấu. "
+        "Chỉ đưa ra câu trả lời cuối cùng; không hiển thị suy nghĩ nội bộ, token, mã kỹ thuật "
+        "hoặc nội dung phân tích nháp."
+    )
 
 OPENAI_COMPATIBLE_URLS = {
     "openai": "https://api.openai.com/v1/chat/completions",
@@ -60,7 +70,7 @@ def _call_gemini_sync(api_key: str, model: str, prompt: str, system: str, temper
     }
     payload = {
         "system_instruction": {
-            "parts": [{"text": system}]
+            "parts": [{"text": _gemini_system_text(system)}]
         },
         "contents": [
             {"role": "user", "parts": [{"text": prompt}]}
@@ -81,7 +91,10 @@ def _call_gemini_sync(api_key: str, model: str, prompt: str, system: str, temper
     if not candidates:
         return "⚠️ Gemini API không trả về nội dung phản hồi."
     parts = candidates[0].get("content", {}).get("parts", [])
-    return "".join(p.get("text", "") for p in parts).strip()
+    return "".join(
+        p.get("text", "") for p in parts
+        if not p.get("thought") and isinstance(p.get("text"), str)
+    ).strip()
 
 
 def _stream_gemini(api_key: str, model: str, prompt: str, system: str, temperature: float) -> Generator[str, None, None]:
@@ -93,7 +106,7 @@ def _stream_gemini(api_key: str, model: str, prompt: str, system: str, temperatu
     }
     payload = {
         "system_instruction": {
-            "parts": [{"text": system}]
+            "parts": [{"text": _gemini_system_text(system)}]
         },
         "contents": [
             {"role": "user", "parts": [{"text": prompt}]}
@@ -110,6 +123,8 @@ def _stream_gemini(api_key: str, model: str, prompt: str, system: str, temperatu
             yield f"\n\n⚠️ Lỗi từ Gemini API ({response.status_code}): {err_msg}"
             return
 
+        # requests otherwise guesses ISO-8859-1 for text/event-stream, corrupting Vietnamese UTF-8.
+        response.encoding = "utf-8"
         for line in response.iter_lines(decode_unicode=True):
             if not line:
                 continue
@@ -125,6 +140,8 @@ def _stream_gemini(api_key: str, model: str, prompt: str, system: str, temperatu
                 if candidates:
                     parts = candidates[0].get("content", {}).get("parts", [])
                     for part in parts:
+                        if part.get("thought"):
+                            continue
                         text = part.get("text", "")
                         if text:
                             yield text

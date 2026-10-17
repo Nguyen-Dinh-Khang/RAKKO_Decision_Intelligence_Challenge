@@ -5,8 +5,8 @@ const PROVIDERS = [
   {
     id: 'gemini',
     name: 'Google Gemini',
-    defaultModel: 'gemini-2.5-flash',
-    models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
+    defaultModel: 'gemini-3.8-flash',
+    models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
     placeholderKey: 'AIzaSy...'
   },
   {
@@ -46,7 +46,7 @@ export default function ApiKeyModal({ isOpen, onClose, llmConfig, onSaveConfig, 
   const [mode, setMode] = useState('local');
   const [provider, setProvider] = useState('gemini');
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('gemini-2.5-flash');
+  const [model, setModel] = useState('gemini-3.8-flash');
   const [showKey, setShowKey] = useState(false);
 
   const [verifying, setVerifying] = useState(false);
@@ -57,7 +57,7 @@ export default function ApiKeyModal({ isOpen, onClose, llmConfig, onSaveConfig, 
       setMode(llmConfig.mode || 'local');
       setProvider(llmConfig.provider || 'gemini');
       setApiKey(llmConfig.api_key || '');
-      setModel(llmConfig.model || 'gemini-2.5-flash');
+      setModel(llmConfig.model || 'gemini-3.8-flash');
       setVerifyStatus(null);
     }
   }, [isOpen, llmConfig]);

@@ -28,7 +28,7 @@ export default function App() {
     } catch {
       // ignore
     }
-    return { mode: 'local', provider: 'gemini', api_key: '', model: 'gemini-2.5-flash' };
+    return { mode: 'local', provider: 'gemini', api_key: '', model: 'gemini-3.8-flash' };
   });
 
   const handleUpdateLlmConfig = (newCfg) => {
